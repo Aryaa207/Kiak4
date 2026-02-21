@@ -325,6 +325,8 @@ function loadCar() {
       gltf.scene.position.set(0, -0.5, 0);
       gltf.scene.scale.set(1, 1, 1);
       scene.add(gltf.scene);
+      // ↓ MUST be called after scene.add so raycasts hit the car geometry
+      buildSmokeWands(gltf.scene);
       hideLoader();
     },
     (xhr) => {
@@ -345,12 +347,19 @@ function loadCar() {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// SMOKE WAND SYSTEM
+// SMOKE WAND SYSTEM  v7  ─ Surface-Aware Raycaster Edition
+//
+// Key guarantees:
+//   • Geometry built ONCE inside buildSmokeWands(), called only after
+//     the GLB is fully in the scene so raycasts actually hit the car.
+//   • uTime updated every frame — zero geometry recalculation.
+//   • AdditiveBlending: can never write black, no compositor needed.
+//   • All shader outputs clamped [0,1] — NaN/Inf impossible.
 // ─────────────────────────────────────────────────────────────────
 
-// ── GLSL shader ──────────────────────────────────────────────────
-// AdditiveBlending: adds light only, physically cannot write black.
-// All values clamped [0,1]: NaN / Inf impossible.
+// ── Cinematic shader ─────────────────────────────────────────────
+// Combines the pulse-wave animation from the user's SmokeMaterial
+// with our proven head/tail fade and radial-taper logic.
 const smokeVert = `
   varying vec2 vUv;
   void main() {
@@ -358,149 +367,180 @@ const smokeVert = `
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
+
 const smokeFrag = `
+  uniform float uTime;
+  uniform float uSpeed;   // maps to mph → controls pulse frequency
   uniform vec3  uColor;
   uniform float uOpacity;
-  uniform float uHead;
   varying vec2  vUv;
 
   void main() {
-    float tailLen = 0.72;
-    float behind  = uHead - vUv.x;
-    if (behind < 0.0) behind += 1.0;
-    if (behind > tailLen) discard;
+    // ── Travelling pulse ─────────────────────────────────────────
+    // Speed-linked: faster MPH = faster pulse wave
+    float pulse = sin(vUv.x * 9.0 - uTime * uSpeed * 2.8) * 0.42 + 0.58;
 
-    // Along-tube: full at head, zero at tail
-    float along = pow(clamp(1.0 - behind / tailLen, 0.0, 1.0), 1.3);
-    // Tip: extra bright leading edge (so bloom has something to catch later)
-    float tip   = pow(clamp(1.0 - behind / 0.05, 0.0, 1.0), 3.0);
-    // Radial: full at tube core, zero at seam edge
+    // ── Edge fade: smooth head and tail ──────────────────────────
+    float edgeFade = smoothstep(0.0, 0.08, vUv.x) * smoothstep(1.0, 0.72, vUv.x);
+
+    // ── Radial taper: bright core, soft edge ─────────────────────
     float radial = sin(clamp(vUv.y, 0.0, 1.0) * 3.14159265);
-    float core   = pow(clamp(radial, 0.0, 1.0), 1.6);
+    float core   = pow(clamp(radial, 0.0, 1.0), 1.5);
 
-    float alpha = clamp((along + tip) * core * uOpacity, 0.0, 1.0);
-    if (alpha < 0.006) discard;
+    // ── Bright leading tip ────────────────────────────────────────
+    float tip = pow(clamp(1.0 - vUv.x / 0.06, 0.0, 1.0), 3.0);
 
-    vec3 col = clamp(mix(uColor, vec3(0.92, 0.98, 1.00), tip * core * 0.7), 0.0, 1.0);
+    float alpha = clamp((pulse * edgeFade + tip * 0.6) * core * uOpacity, 0.0, 1.0);
+    if (alpha < 0.005) discard;
+
+    // Tip brightens to near-white for visual pop
+    vec3 col = clamp(
+      mix(uColor, vec3(0.90, 0.98, 1.00), tip * core * 0.6) * 1.4,
+      0.0, 1.0
+    );
     gl_FragColor = vec4(col * alpha, alpha);
   }
 `;
 
-// ── Car body silhouette for path physics ─────────────────────────
-// Returns Y of car's top surface at a given Z depth.
-// Car: nose = +Z, trunk = −Z.
-const SURF_CLEAR = 0.025;  // gap above surface to prevent clipping
-function carTopY(pz) {
-  if (pz > 3.3 || pz < -3.6) return -99;
-  let y;
-  if      (pz >  2.5) y = -0.15 + (3.3 - pz) / 0.8  * 0.28;   // bumper
-  else if (pz >  0.5) y =  0.13 + (2.5 - pz) / 2.0  * 0.68;   // hood
-  else if (pz > -0.5) y =  0.81 + Math.sin((pz + 0.5) * Math.PI) * 0.05; // roof
-  else if (pz > -3.1) y =  0.81 - (-0.5 - pz) / 2.6  * 0.83;  // fastback
-  else                y = -0.02;
-  return y + SURF_CLEAR;
-}
+// ── Surface-detection raycaster ──────────────────────────────────
+// Fires a downward ray at each Z slice and lands 5 cm above whatever
+// it hits (car roof, hood, windshield, trunk).  Falls back to the
+// freestream Y if nothing is below (open air before/after the car).
+const SURFACE_OFFSET = 0.05;  // 5 cm clearance above paint
 
-// ── Path builder ─────────────────────────────────────────────────
-// seedY is raised globally (+0.22) so wands START above the front grille.
-// Extra vent-zone push (+0.25 max) arcs them cleanly over the grille aperture.
-function buildWandPath(seedX, seedY) {
-  const N     = 26;
-  const baseY = seedY + 0.22;   // global vent-clearance lift
-  const pts   = [];
+function getSurfaceAdjustedPoints(startX, freeY, carModel) {
+  const raycaster  = new THREE.Raycaster();
+  const downVector = new THREE.Vector3(0, -1, 0);
+  const segments   = 60;
+  const totalLen   = 14;      // front of tunnel → rear wake
+  const pts        = [];
+  let prevY        = freeY;   // tracks last known Y for smooth falloff recovery
 
-  for (let i = 0; i < N; i++) {
-    const pz = 8.5 - (i / (N - 1)) * 14.5;   // +8.5 front → -6.0 wake
-    let x = seedX, y = baseY;
+  for (let i = 0; i < segments; i++) {
+    const t  = i / (segments - 1);
+    const pz = 7 - t * totalLen;   // +7 (front) → -7 (wake)
+    const px = startX;
 
-    const top   = carTopY(pz);
-    const onCar = top > -90 && Math.abs(seedX) < 0.97;
+    // Cast from 4 units above — safely above any car geometry
+    raycaster.set(new THREE.Vector3(px, 4, pz), downVector);
+    const hits = raycaster.intersectObject(carModel, true);
 
-    // Vent avoidance zone (front grille area)
-    const inVent  = pz > 1.5 && pz < 3.6 && Math.abs(seedX) < 0.70;
-    const ventPush = inVent ? 0.25 * Math.sin((pz - 1.5) / 2.1 * Math.PI) : 0;
+    let py;
+    if (hits.length > 0) {
+      // Landed on car surface — ride 5 cm above impact point
+      py = hits[0].point.y + SURFACE_OFFSET;
+    } else {
+      // No car below — gradually recover toward freestream height
+      // prevY keeps continuity so there's no sudden jump off the tail
+      py = prevY + (freeY - prevY) * 0.12;
+    }
+    prevY = py;
 
-    if (onCar && y < top + ventPush) y = top + ventPush;
-
-    // Wheel arch lateral splay
-    if (Math.abs(seedX) > 0.54 && pz > -3.3 && pz < 3.3) {
+    // Lateral splay over wheel arches (same physics as before)
+    let px2 = px;
+    if (Math.abs(px) > 0.55 && pz > -3.3 && pz < 3.3) {
       const arch = 0.10 * Math.max(0, Math.sin((3.3 - Math.abs(pz)) / 3.3 * Math.PI));
-      x = seedX > 0 ? seedX + arch : seedX - arch;
+      px2 = px > 0 ? px + arch : px - arch;
     }
 
-    // Wake: recover back toward far-field height
-    if (pz < -3.4) {
-      const wt = Math.min((-3.4 - pz) / 2.8, 1.0);
-      y += (baseY - y) * wt * 0.45;
-    }
-
-    pts.push(new THREE.Vector3(x, y, pz));
+    pts.push(new THREE.Vector3(px2, py, pz));
   }
+
   return pts;
 }
 
-// ── Wand definitions ─────────────────────────────────────────────
-// r  = tube radius in world units (bigger = thicker, more visible)
-// op = opacity (0–1)
-// spd = individual speed multiplier for organic variation
-const WAND_DEFS = [
-  // Centre spine — most prominent single ribbon
-  { x:  0.00, y:  0.05, r: 0.060, op: 0.72, spd: 0.88 },
-  { x:  0.00, y:  0.32, r: 0.038, op: 0.58, spd: 0.74 },
+// ── Wand seed definitions ─────────────────────────────────────────
+// 12 wands evenly spread across car width, per spec.
+// x  = lateral position (-1.2 → +1.2)
+// y  = freestream height if no surface hit (approaches from here)
+// r  = tube radius (0.04 per spec, slightly varied for depth)
+// op = opacity
+// spd = per-wand pulse speed multiplier for organic variation
+const WAND_SEEDS = [
+  // Centre (x=0) — boldest ribbon
+  { x:  0.00, y: 0.55, r: 0.048, op: 0.72, spd: 0.88 },
 
-  // Inner pair — A-pillar width
-  { x: -0.30, y:  0.06, r: 0.048, op: 0.64, spd: 0.96 },
-  { x:  0.30, y:  0.06, r: 0.048, op: 0.64, spd: 0.83 },
-  { x: -0.30, y:  0.30, r: 0.032, op: 0.52, spd: 1.06 },
-  { x:  0.30, y:  0.30, r: 0.032, op: 0.52, spd: 0.71 },
+  // ±0.24 — inner A-pillar
+  { x: -0.24, y: 0.50, r: 0.042, op: 0.64, spd: 0.95 },
+  { x:  0.24, y: 0.50, r: 0.042, op: 0.64, spd: 0.82 },
 
-  // Mid pair — door mirror / shoulder line
-  { x: -0.64, y:  0.12, r: 0.040, op: 0.56, spd: 0.93 },
-  { x:  0.64, y:  0.12, r: 0.040, op: 0.56, spd: 1.09 },
-  { x: -0.64, y:  0.32, r: 0.026, op: 0.44, spd: 0.79 },
-  { x:  0.64, y:  0.32, r: 0.026, op: 0.44, spd: 0.86 },
+  // ±0.52 — door shoulder
+  { x: -0.52, y: 0.45, r: 0.040, op: 0.58, spd: 1.02 },
+  { x:  0.52, y: 0.45, r: 0.040, op: 0.58, spd: 0.76 },
 
-  // Outer pair — fender / wheel arch crest
-  { x: -0.90, y:  0.22, r: 0.030, op: 0.42, spd: 1.14 },
-  { x:  0.90, y:  0.22, r: 0.030, op: 0.42, spd: 0.67 },
+  // ±0.78 — mirror / fender crest
+  { x: -0.78, y: 0.40, r: 0.036, op: 0.50, spd: 1.10 },
+  { x:  0.78, y: 0.40, r: 0.036, op: 0.50, spd: 0.68 },
 
-  // High free-stream — above roofline, reads clearly at distance
-  { x: -0.18, y:  1.18, r: 0.024, op: 0.36, spd: 0.99 },
-  { x:  0.18, y:  1.18, r: 0.024, op: 0.36, spd: 0.89 },
+  // ±1.00 — fender edge
+  { x: -1.00, y: 0.35, r: 0.030, op: 0.42, spd: 0.90 },
+  { x:  1.00, y: 0.35, r: 0.030, op: 0.42, spd: 1.06 },
 
-  // Underbody / sill
-  { x: -0.50, y: -0.28, r: 0.022, op: 0.40, spd: 1.03 },
-  { x:  0.50, y: -0.28, r: 0.022, op: 0.40, spd: 0.76 },
+  // ±1.20 — outermost, per spec (-1.2 → 1.2)
+  { x: -1.20, y: 0.30, r: 0.024, op: 0.34, spd: 1.14 },
+  { x:  1.20, y: 0.30, r: 0.024, op: 0.34, spd: 0.72 },
+
+  // High free-stream above roof — always visible
+  { x:  0.00, y: 1.20, r: 0.028, op: 0.38, spd: 0.94 },
 ];
 
-// ── Build meshes ─────────────────────────────────────────────────
-const smokeWands = WAND_DEFS.map((d, i) => {
-  const curve = new THREE.CatmullRomCurve3(buildWandPath(d.x, d.y));
-  // 80 tubular segments for smooth curves, 8 radial for clean silhouette
-  const geo   = new THREE.TubeGeometry(curve, 80, d.r, 8, false);
-  geo.computeBoundingSphere();
+// ── smokeWands array (filled by buildSmokeWands after GLB loads) ──
+const smokeWands = [];
 
-  const mat = new THREE.ShaderMaterial({
-    vertexShader:   smokeVert,
-    fragmentShader: smokeFrag,
-    uniforms: {
-      uColor:   { value: new THREE.Color(0x38d8ff) },
-      uOpacity: { value: d.op },
-      uHead:    { value: 0.0 },
-    },
-    transparent: true,
-    depthWrite:  false,
-    blending:    THREE.AdditiveBlending,  // cannot produce black
-    side:        THREE.DoubleSide,
+// ── buildSmokeWands(carModel) ─────────────────────────────────────
+// Called ONCE after gltf.scene is in the scene graph so raycasts hit.
+// Builds TubeGeometry for each seed using the raycaster-derived path,
+// then adds the mesh to the scene.  Never called again — only uTime
+// is updated per frame.
+function buildSmokeWands(carModel) {
+  console.log('[K4] Building surface-aware smoke wands…');
+
+  WAND_SEEDS.forEach((seed, i) => {
+    // 1. Get the raycasted path — this is the expensive part, done once
+    const pts   = getSurfaceAdjustedPoints(seed.x, seed.y, carModel);
+    const curve = new THREE.CatmullRomCurve3(pts);
+
+    // 2. Build TubeGeometry once
+    const geo = new THREE.TubeGeometry(
+      curve,
+      80,       // tubular segments — smooth curves
+      seed.r,   // radius (0.04 per spec, varied slightly)
+      8,        // radial segments
+      false     // not closed
+    );
+    geo.computeBoundingSphere();
+
+    // 3. Cinematic shader material — only uTime updated per frame
+    const mat = new THREE.ShaderMaterial({
+      vertexShader:   smokeVert,
+      fragmentShader: smokeFrag,
+      uniforms: {
+        uTime:    { value: 0.0 },
+        uSpeed:   { value: 1.0 },   // set from currentSpeed each frame
+        uColor:   { value: new THREE.Color(0x38d8ff) },
+        uOpacity: { value: seed.op },
+      },
+      transparent: true,
+      depthWrite:  false,
+      blending:    THREE.AdditiveBlending,
+      side:        THREE.DoubleSide,
+    });
+
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.renderOrder   = 2;
+    mesh.frustumCulled = true;
+    scene.add(mesh);
+
+    // Store reference — phase offset staggers the pulse wave per wand
+    smokeWands.push({
+      mat,
+      phaseOffset: (i / WAND_SEEDS.length) * Math.PI * 2,
+      spd: seed.spd,
+    });
   });
 
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.renderOrder   = 2;
-  mesh.frustumCulled = true;
-  scene.add(mesh);
-
-  return { mat, phase: i / WAND_DEFS.length, spd: d.spd };
-});
+  console.log(`[K4] ✓ ${smokeWands.length} surface-aware wands built`);
+}
 
 // ─────────────────────────────────────────────────────────────────
 // ANIMATION LOOP
@@ -512,12 +552,13 @@ function animate() {
   const delta   = clock.getDelta();
   const elapsed = clock.getElapsedTime();
 
-  // ── Smoke head animation ─────────────────────────────────────
-  // 40 mph = head travels 0.26 tube-lengths/s
-  // 100 mph = 0.85 tube-lengths/s
-  const smokeSpd = 0.26 + ((currentSpeed - 40) / 60) * 0.59;
-  for (const { mat, phase, spd } of smokeWands) {
-    mat.uniforms.uHead.value = ((elapsed * smokeSpd * spd) + phase) % 1.0;
+  // ── Smoke animation ──────────────────────────────────────────────
+  // Geometry is static — only uTime and uSpeed uniforms update each frame.
+  // uSpeed is normalised so 40 mph = slow pulse, 100 mph = fast pulse.
+  const normalizedSpeed = 0.4 + ((currentSpeed - 40) / 60) * 1.2; // 0.4–1.6 range
+  for (const { mat, phaseOffset, spd } of smokeWands) {
+    mat.uniforms.uTime.value  = elapsed + phaseOffset;
+    mat.uniforms.uSpeed.value = normalizedSpeed * spd;
   }
 
   // ── WHEEL SPIN ───────────────────────────────────────────────
