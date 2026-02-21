@@ -509,90 +509,95 @@ gltfLoader.load(
 );
 
 // ─────────────────────────────────────────────
-// ROOFLINE HEIGHT MAP
-// Air flows front (+X nose) → rear (-X trunk)
-// px = position along car's length axis
+// AIRFLOW SYSTEM
+// The car's length runs along the Z axis in the GLB.
+// Air flows FRONT (positive Z, nose) → REAR (negative Z, trunk).
+// We build two ribbon layers:
+//   LAYER A – over the roof/hood/fastback (high Y, varying X spread)
+//   LAYER B – along the door sides (low-mid Y, fixed X near ±0.9)
+// Each ribbon is a long polyline traced along the body profile.
 // ─────────────────────────────────────────────
-function rooflineY(px, base) {
-  // Approach from front – flat low before bumper
-  if (px > 3.0)  return base * 0.4;
-  // Nose/bumper rise
-  if (px > 2.2)  return base * 0.4 + (3.0 - px) / 0.8 * base * 0.5;
-  // Hood climb
-  if (px > 0.5)  return base + (2.2 - px) / 1.7 * 0.45;
-  // Windshield peak
-  if (px > -0.3) return base + 0.45;
+
+// Height profile along Z (car length).
+// pz = Z position.  +4 = far in front, -4 = far behind.
+function profileY(pz, base) {
+  // Far in front – low approach before bumper
+  if (pz >  3.8) return base * 0.3;
+  // Front bumper / nose rise
+  if (pz >  2.8) return base * 0.3 + (3.8 - pz) * base * 0.7;
+  // Hood climb toward windshield
+  if (pz >  0.8) return base + (2.8 - pz) / 2.0 * 0.55;
+  // Windshield / A-pillar peak
+  if (pz >  0.0) return base + 0.55 + (0.8 - pz) / 0.8 * 0.10;
   // Flat roofline
-  if (px > -1.0) return base + 0.50;
-  // Fastback descent
-  if (px > -2.8) return base + 0.50 - (-1.0 - px) / 1.8 * 0.55;
-  // Past trunk – detach & trail
-  return base + 0.50 - 0.55 + (-2.8 - px) * 0.08;
+  if (pz > -0.8) return base + 0.65;
+  // Fastback sweep down to trunk
+  if (pz > -3.0) return base + 0.65 - (-0.8 - pz) / 2.2 * 0.65;
+  // Trunk detachment / wake turbulence
+  return base + 0.65 - 0.65 - (pz + 3.0) * 0.05;
 }
 
-// Side-body height (lower streamlines hugging door panels)
-function bodySideY(px, base) {
-  if (px > 2.5)  return base * 0.3;
-  if (px > 1.5)  return base * 0.3 + (2.5 - px) / 1.0 * base * 0.4;
-  if (px > -2.5) return base;
-  return base - (-2.5 - px) * 0.06;
+// Side profile – door / sill height (flat with slight nose tuck)
+function sideY(pz, base) {
+  if (pz >  3.0) return base * 0.2;
+  if (pz >  2.0) return base * 0.2 + (3.0 - pz) * base * 0.5;
+  if (pz > -3.0) return base;
+  return base + (pz + 3.0) * 0.04; // slight tail lift
 }
 
-// ─────────────────────────────────────────────
-// WIND TUNNEL RIBBONS
-// Each ribbon = many quad-strip segments rendered
-// as a Line with alternating opacity to fake width
-// ─────────────────────────────────────────────
-const RIBBON_COUNT  = 48;   // total ribbons
-const SEG           = 40;   // segments per ribbon
-const SEG_LEN       = 0.22; // world-units per segment
-const TOTAL_LEN     = SEG * SEG_LEN; // ≈ 8.8 units
+// ── Build ribbons ──────────────────────────────
+const RIBBON_COUNT  = 80;    // plenty of lines for drama
+const SEG           = 55;    // segments per ribbon – longer trails
+const SEG_LEN       = 0.20;  // spacing between segments
+const CYCLE         = SEG * SEG_LEN + 3.0; // total cycle length with gap
 
-const ribbonGeos    = [];
-const ribbonLanes   = [];
-const ribbonBaseY   = [];
-const ribbonSpeeds  = [];
-const ribbonOffsets = [];
-const ribbonIsTop   = [];   // true = over roof, false = side panel
+const rGeos    = [];
+const rLane    = [];  // X offset (lateral)
+const rBaseY   = [];  // base height
+const rSpeed   = [];
+const rOffset  = [];
+const rIsTop   = [];
 
 for (let i = 0; i < RIBBON_COUNT; i++) {
-  const isTop = i < RIBBON_COUNT * 0.65; // 65% over roof, 35% along sides
+  const isTop = i < RIBBON_COUNT * 0.60; // 60% roof, 40% sides
 
   const pts = [];
   for (let s = 0; s <= SEG; s++) pts.push(new THREE.Vector3());
-
   const geo = new THREE.BufferGeometry().setFromPoints(pts);
   geo.attributes.position.setUsage(THREE.DynamicDrawUsage);
-  ribbonGeos.push(geo);
+  rGeos.push(geo);
+  rIsTop.push(isTop);
 
-  // Lateral spread: top ribbons fan across width, side ones hug flanks
   if (isTop) {
-    ribbonLanes.push((Math.random() - 0.5) * 1.6);
-    ribbonBaseY.push(0.55 + Math.random() * 0.35);
+    // Spread across the full width of the car (-0.85 to +0.85)
+    rLane.push((Math.random() - 0.5) * 1.7);
+    rBaseY.push(0.45 + Math.random() * 0.50); // high above roof
   } else {
-    // Side streamlines: fixed Z near the door, Y near mid-height
-    const side = Math.random() > 0.5 ? 1 : -1;
-    ribbonLanes.push(side * (0.85 + Math.random() * 0.15));
-    ribbonBaseY.push(0.05 + Math.random() * 0.25);
+    // Hug the sides tightly
+    const side = i % 2 === 0 ? 1 : -1;
+    rLane.push(side * (0.78 + Math.random() * 0.18));
+    rBaseY.push(0.05 + Math.random() * 0.30);
   }
 
-  ribbonSpeeds.push(0.55 + Math.random() * 0.45);
-  ribbonOffsets.push(Math.random() * TOTAL_LEN);
-  ribbonIsTop.push(isTop);
+  rSpeed.push(0.5 + Math.random() * 0.5);
+  rOffset.push(Math.random() * CYCLE);
 
-  // Color: top = icy blue-white, sides = slightly warmer cyan
-  const hue   = isTop ? 0x70c8ff : 0x40e8d0;
-  const alpha = isTop
-    ? 0.12 + Math.random() * 0.18
-    : 0.08 + Math.random() * 0.12;
+  // Brighter, more visible colors
+  const bright = isTop
+    ? new THREE.Color().setHSL(0.57 + Math.random() * 0.06, 1.0, 0.72)
+    : new THREE.Color().setHSL(0.50 + Math.random() * 0.08, 1.0, 0.65);
+
+  // Vary opacity – some ribbons are bold, some are wispy
+  const opacity = isTop
+    ? 0.25 + Math.random() * 0.45
+    : 0.18 + Math.random() * 0.30;
 
   const mat = new THREE.LineBasicMaterial({
-    color: hue,
+    color: bright,
     transparent: true,
-    opacity: alpha,
+    opacity,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
-    linewidth: 1, // only works on some GPUs; ribbon effect is done by density
   });
   scene.add(new THREE.Line(geo, mat));
 }
@@ -607,40 +612,36 @@ function animate() {
   const delta   = clock.getDelta();
   const elapsed = clock.getElapsedTime();
 
-  // mph → sim speed: 40mph=0.55, 100mph=2.8
-  const simSpeed = 0.55 + ((currentSpeed - 40) / 60) * 2.25;
+  // Speed mapping: 40 mph → 0.5, 100 mph → 3.2
+  const simSpeed = 0.5 + ((currentSpeed - 40) / 60) * 2.7;
 
-  // ── Animate ribbons ──
   for (let i = 0; i < RIBBON_COUNT; i++) {
-    const geo    = ribbonGeos[i];
-    const pa     = geo.attributes.position;
-    const isTop  = ribbonIsTop[i];
-    const base   = ribbonBaseY[i];
-    const lane   = ribbonLanes[i];
-    const spd    = ribbonSpeeds[i];
+    const pa    = rGeos[i].attributes.position;
+    const isTop = rIsTop[i];
+    const base  = rBaseY[i];
+    const lane  = rLane[i];
+    const spd   = rSpeed[i];
 
-    // Head position: starts at nose (+X), travels to trunk (-X)
-    // We cycle it so there's always a ribbon visible
-    const cycleLen = TOTAL_LEN + 2.0; // extra gap so not wall-to-wall
-    const rawHead  = 3.6 - ((elapsed * simSpeed * spd * 2.2 + ribbonOffsets[i]) % cycleLen);
-    const headX    = rawHead;
+    // Head starts at front of car (+Z) and travels to rear (-Z)
+    const headZ = 4.2 - ((elapsed * simSpeed * spd * 2.0 + rOffset[i]) % CYCLE);
 
     for (let s = 0; s <= SEG; s++) {
-      const px = headX - s * SEG_LEN; // moves nose→trunk (decreasing X)
+      const pz = headZ - s * SEG_LEN;
 
-      let y, z;
+      let y, x;
       if (isTop) {
-        y = rooflineY(px, base);
-        z = lane;
+        y = profileY(pz, base);
+        x = lane;
       } else {
-        y = bodySideY(px, base);
-        z = lane;
-        // Slight inward pinch at nose & tail
-        const pinch = px > 2.0 ? (px - 2.0) * 0.12 : px < -2.2 ? (-2.2 - px) * 0.08 : 0;
-        z = lane > 0 ? lane - pinch : lane + pinch;
+        y = sideY(pz, base);
+        // Slight aerodynamic tuck toward center at nose & tail
+        const tuck = pz > 2.5  ? (pz - 2.5) * 0.10
+                   : pz < -2.8 ? (-2.8 - pz) * 0.07
+                   : 0;
+        x = lane > 0 ? lane - tuck : lane + tuck;
       }
 
-      pa.setXYZ(s, px, Math.max(y, -0.3), z);
+      pa.setXYZ(s, x, Math.max(y, -0.45), pz);
     }
     pa.needsUpdate = true;
   }
