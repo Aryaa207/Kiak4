@@ -508,98 +508,164 @@ gltfLoader.load(
   }
 );
 
-// ─────────────────────────────────────────────
-// AIRFLOW SYSTEM
-// The car's length runs along the Z axis in the GLB.
-// Air flows FRONT (positive Z, nose) → REAR (negative Z, trunk).
-// We build two ribbon layers:
-//   LAYER A – over the roof/hood/fastback (high Y, varying X spread)
-//   LAYER B – along the door sides (low-mid Y, fixed X near ±0.9)
-// Each ribbon is a long polyline traced along the body profile.
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// WIND TUNNEL SMOKE FLOW  –  inspired by real tunnel photography
+//
+// Key idea: each "streamline" is a CONTINUOUS long ribbon that
+// originates far in front of the car, flows parallel until it
+// hits the body, wraps around the silhouette, and trails behind.
+//
+// We model THREE layers of streamlines, exactly like the photo:
+//
+//  LAYER 1 – HIGH (above roof)
+//    Straight in from the front at roof height, slight rise over
+//    the roofline peak, gentle drop down the fastback.
+//
+//  LAYER 2 – MID (hood / door / belt-line level)
+//    Straight approach at mid height, must deflect UP to clear
+//    the hood, follow the body contour, then trail behind.
+//
+//  LAYER 3 – LOW (below door sills, near ground)
+//    Straight approach, nearly flat, slight compression under
+//    the car floor, expand slightly into the wake.
+//
+// All lines travel along Z (car nose = +Z, trunk = -Z).
+// The car body occupies roughly Z: -3.0 to +3.0, Y: -0.5 to +1.2
+// ─────────────────────────────────────────────────────────────────
 
-// Height profile along Z (car length).
-// pz = Z position.  +4 = far in front, -4 = far behind.
-function profileY(pz, base) {
-  // Far in front – low approach before bumper
-  if (pz >  3.8) return base * 0.3;
-  // Front bumper / nose rise
-  if (pz >  2.8) return base * 0.3 + (3.8 - pz) * base * 0.7;
-  // Hood climb toward windshield
-  if (pz >  0.8) return base + (2.8 - pz) / 2.0 * 0.55;
-  // Windshield / A-pillar peak
-  if (pz >  0.0) return base + 0.55 + (0.8 - pz) / 0.8 * 0.10;
-  // Flat roofline
-  if (pz > -0.8) return base + 0.65;
-  // Fastback sweep down to trunk
-  if (pz > -3.0) return base + 0.65 - (-0.8 - pz) / 2.2 * 0.65;
-  // Trunk detachment / wake turbulence
-  return base + 0.65 - 0.65 - (pz + 3.0) * 0.05;
+// ── Body silhouette profile ───────────────────
+// Returns the MINIMUM Y clearance a streamline must be above,
+// given its Z position and X lane (0=centre, ±1=edge of car).
+// Streamlines outside the car width just stay straight.
+const CAR_HALF_WIDTH = 0.88; // half-width of car body
+
+function bodyTopY(pz) {
+  // Outside car length – no obstruction
+  if (pz > 3.2 || pz < -3.4) return -999;
+  // Front bumper rise
+  if (pz > 2.5)  return -0.2 + (3.2 - pz) / 0.7 * 0.35;
+  // Hood
+  if (pz > 0.7)  return 0.15 + (2.5 - pz) / 1.8 * 0.60;
+  // Windshield / roof peak
+  if (pz > -0.5) return 0.75 + Math.sin((pz + 0.5) / 1.2 * Math.PI) * 0.08;
+  // Fastback
+  if (pz > -3.0) return 0.75 - (-0.5 - pz) / 2.5 * 0.80;
+  return -0.05;
 }
 
-// Side profile – door / sill height (flat with slight nose tuck)
-function sideY(pz, base) {
-  if (pz >  3.0) return base * 0.2;
-  if (pz >  2.0) return base * 0.2 + (3.0 - pz) * base * 0.5;
-  if (pz > -3.0) return base;
-  return base + (pz + 3.0) * 0.04; // slight tail lift
+function bodySideX(pz) {
+  // How wide is the car body at this Z station
+  if (pz > 3.0 || pz < -3.2) return 0.3;
+  if (pz > 2.4) return 0.3 + (3.0 - pz) / 0.6 * 0.58;
+  if (pz > -2.8) return CAR_HALF_WIDTH;
+  return CAR_HALF_WIDTH - (-2.8 - pz) / 0.5 * 0.35;
 }
 
-// ── Build ribbons ──────────────────────────────
-const RIBBON_COUNT  = 80;    // plenty of lines for drama
-const SEG           = 55;    // segments per ribbon – longer trails
-const SEG_LEN       = 0.20;  // spacing between segments
-const CYCLE         = SEG * SEG_LEN + 3.0; // total cycle length with gap
+// ── Streamline definition ─────────────────────
+// A streamline is defined by its "far-field" position (X, Y)
+// far upstream. As it approaches the car it gets deflected.
 
-const rGeos    = [];
-const rLane    = [];  // X offset (lateral)
-const rBaseY   = [];  // base height
-const rSpeed   = [];
-const rOffset  = [];
-const rIsTop   = [];
+const SEG     = 70;   // segments per line – long smooth trails
+const SEG_LEN = 0.18; // world units per segment
+const TOTAL_Z = SEG * SEG_LEN; // ≈ 12.6 units total trail length
 
-for (let i = 0; i < RIBBON_COUNT; i++) {
-  const isTop = i < RIBBON_COUNT * 0.60; // 60% roof, 40% sides
+// Generate evenly-spaced streamline seed positions
+const streamlines = [];
 
+// LAYER 1 – High (above roof), spread in X
+for (let i = 0; i < 30; i++) {
+  const x = (i / 29 - 0.5) * 3.2;           // -1.6 to +1.6
+  const y = 1.05 + Math.random() * 0.55;     // high up, some variation
+  streamlines.push({ x, y, layer: 'top', speed: 0.82 + Math.random() * 0.18 });
+}
+
+// LAYER 2 – Mid (hood/belt-line), spread in X
+for (let i = 0; i < 28; i++) {
+  const x = (i / 27 - 0.5) * 3.6;
+  const y = 0.18 + Math.random() * 0.28;
+  streamlines.push({ x, y, layer: 'mid', speed: 0.75 + Math.random() * 0.25 });
+}
+
+// LAYER 3 – Low (under-body / sill), spread in X
+for (let i = 0; i < 22; i++) {
+  const x = (i / 21 - 0.5) * 3.8;
+  const y = -0.30 + Math.random() * 0.20;
+  streamlines.push({ x, y, layer: 'low', speed: 0.70 + Math.random() * 0.30 });
+}
+
+const STREAM_COUNT = streamlines.length;
+const CYCLE = TOTAL_Z + 4.5; // gap between repeats
+
+// Build geometry + materials
+const sGeos    = [];
+const sOffsets = [];
+
+streamlines.forEach((s, i) => {
   const pts = [];
-  for (let s = 0; s <= SEG; s++) pts.push(new THREE.Vector3());
+  for (let k = 0; k <= SEG; k++) pts.push(new THREE.Vector3());
   const geo = new THREE.BufferGeometry().setFromPoints(pts);
   geo.attributes.position.setUsage(THREE.DynamicDrawUsage);
-  rGeos.push(geo);
-  rIsTop.push(isTop);
+  sGeos.push(geo);
+  sOffsets.push(Math.random() * CYCLE);
 
-  if (isTop) {
-    // Spread across the full width of the car (-0.85 to +0.85)
-    rLane.push((Math.random() - 0.5) * 1.7);
-    rBaseY.push(0.45 + Math.random() * 0.50); // high above roof
+  // Colour palette – teal/cyan like the VW tunnel photo, but transparent
+  let hue, sat, lit, opacity;
+  if (s.layer === 'top') {
+    hue = 0.50 + Math.random() * 0.06; sat = 0.9; lit = 0.68;
+    opacity = 0.12 + Math.random() * 0.18; // wispy – these are far from body
+  } else if (s.layer === 'mid') {
+    hue = 0.53 + Math.random() * 0.05; sat = 1.0; lit = 0.72;
+    opacity = 0.18 + Math.random() * 0.22; // most visible – wrapping the body
   } else {
-    // Hug the sides tightly
-    const side = i % 2 === 0 ? 1 : -1;
-    rLane.push(side * (0.78 + Math.random() * 0.18));
-    rBaseY.push(0.05 + Math.random() * 0.30);
+    hue = 0.48 + Math.random() * 0.06; sat = 0.85; lit = 0.60;
+    opacity = 0.10 + Math.random() * 0.15; // subtle underbody flow
   }
 
-  rSpeed.push(0.5 + Math.random() * 0.5);
-  rOffset.push(Math.random() * CYCLE);
-
-  // Brighter, more visible colors
-  const bright = isTop
-    ? new THREE.Color().setHSL(0.57 + Math.random() * 0.06, 1.0, 0.72)
-    : new THREE.Color().setHSL(0.50 + Math.random() * 0.08, 1.0, 0.65);
-
-  // Vary opacity – some ribbons are bold, some are wispy
-  const opacity = isTop
-    ? 0.25 + Math.random() * 0.45
-    : 0.18 + Math.random() * 0.30;
-
   const mat = new THREE.LineBasicMaterial({
-    color: bright,
+    color: new THREE.Color().setHSL(hue, sat, lit),
     transparent: true,
     opacity,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
   scene.add(new THREE.Line(geo, mat));
+});
+
+// ── Deflection logic ──────────────────────────
+// Given a streamline's far-field (x0, y0) and a Z position,
+// compute where it actually is after deflecting around the car.
+function deflect(x0, y0, pz) {
+  const bTop  = bodyTopY(pz);
+  const bSide = bodySideX(pz);
+  const inCarWidth = Math.abs(x0) < bSide + 0.05;
+
+  let x = x0;
+  let y = y0;
+
+  if (inCarWidth && bTop > -100) {
+    // Vertical deflection: push line up if it would clip the body
+    const clearance = 0.08; // gap between line and body surface
+    if (y < bTop + clearance) {
+      // Smoothly push up – more deflection closer to car centre
+      const centreFactor = 1.0 - Math.abs(x0) / (bSide + 0.3);
+      const push = (bTop + clearance - y) * Math.max(centreFactor, 0.3);
+      y = y + push;
+    }
+    // Horizontal deflection: lines near the car width edge splay outward
+    const edgeDist = bSide - Math.abs(x0);
+    if (edgeDist < 0.3) {
+      const splay = (0.3 - edgeDist) / 0.3 * 0.25;
+      x = x0 > 0 ? x0 + splay : x0 - splay;
+    }
+  }
+
+  // Wake expansion: lines spread slightly behind the car
+  if (pz < -3.0 && inCarWidth) {
+    const wakeT = Math.min((-3.0 - pz) / 2.0, 1.0);
+    y = y - wakeT * 0.2 * (y > 0 ? 1 : -1); // gently converge back
+  }
+
+  return { x, y };
 }
 
 // ─────────────────────────────────────────────
@@ -612,36 +678,21 @@ function animate() {
   const delta   = clock.getDelta();
   const elapsed = clock.getElapsedTime();
 
-  // Speed mapping: 40 mph → 0.5, 100 mph → 3.2
-  const simSpeed = 0.5 + ((currentSpeed - 40) / 60) * 2.7;
+  // Speed mapping: 40 mph → 0.45, 100 mph → 2.8
+  const simSpeed = 0.45 + ((currentSpeed - 40) / 60) * 2.35;
 
-  for (let i = 0; i < RIBBON_COUNT; i++) {
-    const pa    = rGeos[i].attributes.position;
-    const isTop = rIsTop[i];
-    const base  = rBaseY[i];
-    const lane  = rLane[i];
-    const spd   = rSpeed[i];
+  for (let i = 0; i < STREAM_COUNT; i++) {
+    const pa  = sGeos[i].attributes.position;
+    const s   = streamlines[i];
 
-    // Head starts at front of car (+Z) and travels to rear (-Z)
-    const headZ = 4.2 - ((elapsed * simSpeed * spd * 2.0 + rOffset[i]) % CYCLE);
+    // Head of this line: starts far in front (+Z) and cycles backward
+    // We start lines well AHEAD of the car so you see the approach
+    const headZ = 6.5 - ((elapsed * simSpeed * s.speed * 1.8 + sOffsets[i]) % CYCLE);
 
-    for (let s = 0; s <= SEG; s++) {
-      const pz = headZ - s * SEG_LEN;
-
-      let y, x;
-      if (isTop) {
-        y = profileY(pz, base);
-        x = lane;
-      } else {
-        y = sideY(pz, base);
-        // Slight aerodynamic tuck toward center at nose & tail
-        const tuck = pz > 2.5  ? (pz - 2.5) * 0.10
-                   : pz < -2.8 ? (-2.8 - pz) * 0.07
-                   : 0;
-        x = lane > 0 ? lane - tuck : lane + tuck;
-      }
-
-      pa.setXYZ(s, x, Math.max(y, -0.45), pz);
+    for (let k = 0; k <= SEG; k++) {
+      const pz = headZ - k * SEG_LEN;
+      const { x, y } = deflect(s.x, s.y, pz);
+      pa.setXYZ(k, x, y, pz);
     }
     pa.needsUpdate = true;
   }
