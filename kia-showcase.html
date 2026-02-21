@@ -508,169 +508,216 @@ gltfLoader.load(
   }
 );
 
-// ─────────────────────────────────────────────────────────────────
-// WIND TUNNEL SMOKE FLOW  –  inspired by real tunnel photography
+
+// ═══════════════════════════════════════════════════════════════════
+// SMOKE WAND SYSTEM
 //
-// Key idea: each "streamline" is a CONTINUOUS long ribbon that
-// originates far in front of the car, flows parallel until it
-// hits the body, wraps around the silhouette, and trails behind.
-//
-// We model THREE layers of streamlines, exactly like the photo:
-//
-//  LAYER 1 – HIGH (above roof)
-//    Straight in from the front at roof height, slight rise over
-//    the roofline peak, gentle drop down the fastback.
-//
-//  LAYER 2 – MID (hood / door / belt-line level)
-//    Straight approach at mid height, must deflect UP to clear
-//    the hood, follow the body contour, then trail behind.
-//
-//  LAYER 3 – LOW (below door sills, near ground)
-//    Straight approach, nearly flat, slight compression under
-//    the car floor, expand slightly into the wake.
-//
-// All lines travel along Z (car nose = +Z, trunk = -Z).
-// The car body occupies roughly Z: -3.0 to +3.0, Y: -0.5 to +1.2
-// ─────────────────────────────────────────────────────────────────
+// Architecture:
+//  • 8 thick TubeGeometry tubes at key aero positions
+//  • Custom GLSL shader: glowing head, transparent fading tail
+//  • UnrealBloomPass so tubes glow against the black paint
+//  • Tubes slide forward each frame using mesh.position.z
+//    so you get true flowing motion without rebuilding geometry
+// ═══════════════════════════════════════════════════════════════════
 
-// ── Body silhouette profile ───────────────────
-// Returns the MINIMUM Y clearance a streamline must be above,
-// given its Z position and X lane (0=centre, ±1=edge of car).
-// Streamlines outside the car width just stay straight.
-const CAR_HALF_WIDTH = 0.88; // half-width of car body
+// ── 1. Bloom post-processing ─────────────────────────────────────
+import { EffectComposer }  from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass }      from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass }      from 'three/addons/postprocessing/OutputPass.js';
 
-function bodyTopY(pz) {
-  // Outside car length – no obstruction
-  if (pz > 3.2 || pz < -3.4) return -999;
-  // Front bumper rise
-  if (pz > 2.5)  return -0.2 + (3.2 - pz) / 0.7 * 0.35;
-  // Hood
-  if (pz > 0.7)  return 0.15 + (2.5 - pz) / 1.8 * 0.60;
-  // Windshield / roof peak
-  if (pz > -0.5) return 0.75 + Math.sin((pz + 0.5) / 1.2 * Math.PI) * 0.08;
-  // Fastback
-  if (pz > -3.0) return 0.75 - (-0.5 - pz) / 2.5 * 0.80;
-  return -0.05;
-}
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  1.4,   // bloom strength
+  0.6,   // bloom radius
+  0.05   // threshold – very low so wispy tubes still glow
+);
+composer.addPass(bloomPass);
+composer.addPass(new OutputPass());
 
-function bodySideX(pz) {
-  // How wide is the car body at this Z station
-  if (pz > 3.0 || pz < -3.2) return 0.3;
-  if (pz > 2.4) return 0.3 + (3.0 - pz) / 0.6 * 0.58;
-  if (pz > -2.8) return CAR_HALF_WIDTH;
-  return CAR_HALF_WIDTH - (-2.8 - pz) / 0.5 * 0.35;
-}
-
-// ── Streamline definition ─────────────────────
-// A streamline is defined by its "far-field" position (X, Y)
-// far upstream. As it approaches the car it gets deflected.
-
-const SEG     = 70;   // segments per line – long smooth trails
-const SEG_LEN = 0.18; // world units per segment
-const TOTAL_Z = SEG * SEG_LEN; // ≈ 12.6 units total trail length
-
-// Generate evenly-spaced streamline seed positions
-const streamlines = [];
-
-// LAYER 1 – High (above roof), spread in X
-for (let i = 0; i < 30; i++) {
-  const x = (i / 29 - 0.5) * 3.2;           // -1.6 to +1.6
-  const y = 1.05 + Math.random() * 0.55;     // high up, some variation
-  streamlines.push({ x, y, layer: 'top', speed: 0.82 + Math.random() * 0.18 });
-}
-
-// LAYER 2 – Mid (hood/belt-line), spread in X
-for (let i = 0; i < 28; i++) {
-  const x = (i / 27 - 0.5) * 3.6;
-  const y = 0.18 + Math.random() * 0.28;
-  streamlines.push({ x, y, layer: 'mid', speed: 0.75 + Math.random() * 0.25 });
-}
-
-// LAYER 3 – Low (under-body / sill), spread in X
-for (let i = 0; i < 22; i++) {
-  const x = (i / 21 - 0.5) * 3.8;
-  const y = -0.30 + Math.random() * 0.20;
-  streamlines.push({ x, y, layer: 'low', speed: 0.70 + Math.random() * 0.30 });
-}
-
-const STREAM_COUNT = streamlines.length;
-const CYCLE = TOTAL_Z + 4.5; // gap between repeats
-
-// Build geometry + materials
-const sGeos    = [];
-const sOffsets = [];
-
-streamlines.forEach((s, i) => {
-  const pts = [];
-  for (let k = 0; k <= SEG; k++) pts.push(new THREE.Vector3());
-  const geo = new THREE.BufferGeometry().setFromPoints(pts);
-  geo.attributes.position.setUsage(THREE.DynamicDrawUsage);
-  sGeos.push(geo);
-  sOffsets.push(Math.random() * CYCLE);
-
-  // Colour palette – teal/cyan like the VW tunnel photo, but transparent
-  let hue, sat, lit, opacity;
-  if (s.layer === 'top') {
-    hue = 0.50 + Math.random() * 0.06; sat = 0.9; lit = 0.68;
-    opacity = 0.12 + Math.random() * 0.18; // wispy – these are far from body
-  } else if (s.layer === 'mid') {
-    hue = 0.53 + Math.random() * 0.05; sat = 1.0; lit = 0.72;
-    opacity = 0.18 + Math.random() * 0.22; // most visible – wrapping the body
-  } else {
-    hue = 0.48 + Math.random() * 0.06; sat = 0.85; lit = 0.60;
-    opacity = 0.10 + Math.random() * 0.15; // subtle underbody flow
+// ── 2. Custom GLSL shader ─────────────────────────────────────────
+// TubeGeometry UV layout:
+//   uv.x  = 0 (start/tail) → 1 (end/head)   [along tube length]
+//   uv.y  = 0 → 1                              [around tube cross-section]
+const smokeVert = `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
+`;
 
-  const mat = new THREE.LineBasicMaterial({
-    color: new THREE.Color().setHSL(hue, sat, lit),
+const smokeFrag = `
+  uniform vec3  uColor;
+  uniform float uTime;
+  uniform float uOpacity;
+  uniform float uProgress; // 0→1, head of the animated slug
+
+  varying vec2 vUv;
+
+  void main() {
+    // ── Along-tube alpha: bright at head, fades to nothing at tail ──
+    // vUv.x=1 is the geometric head of the tube.
+    // We create a "slug" effect: only the section near uProgress is lit.
+    float dist   = abs(vUv.x - uProgress);
+    float slugLen = 0.55;              // fraction of tube that's "lit"
+    float inSlug  = 1.0 - smoothstep(0.0, slugLen, dist);
+
+    // The very tip glows brightest
+    float tip    = pow(max(0.0, 1.0 - dist / 0.08), 3.0);
+
+    // ── Radial alpha: bright in the core, fade at the tube edge ──
+    float radial = sin(vUv.y * 3.14159); // 0 at seams, 1 at centre
+    float core   = pow(radial, 0.7);
+
+    // ── Combine ──
+    float alpha  = inSlug * core * uOpacity;
+    alpha       += tip   * core * uOpacity * 1.5;  // extra tip brightness
+
+    // Subtle shimmer
+    float shim = sin(vUv.x * 22.0 - uTime * 5.0) * 0.5 + 0.5;
+    alpha *= (0.88 + shim * 0.12);
+
+    // Head flare: tip is nearly white
+    vec3 col = mix(uColor, vec3(0.85, 0.97, 1.0), tip * core);
+
+    if (alpha < 0.004) discard;
+    gl_FragColor = vec4(col, alpha);
+  }
+`;
+
+// ── 3. Body silhouette ────────────────────────────────────────────
+// Returns the top-surface Y of the car at a given Z station.
+// Car occupies Z: -3.0 to +3.0  (nose=+Z, trunk=-Z)
+function carTopY(pz) {
+  if (pz >  3.3 || pz < -3.6) return -99;
+  if (pz >  2.5) return -0.15 + (3.3 - pz) / 0.8 * 0.28;   // bumper rise
+  if (pz >  0.5) return 0.13  + (2.5 - pz) / 2.0 * 0.68;   // hood climb
+  if (pz > -0.5) return 0.81  + Math.sin((pz + 0.5) / 1.0 * Math.PI) * 0.05; // roof peak
+  if (pz > -3.1) return 0.81  - (-0.5 - pz) / 2.6 * 0.83;  // fastback
+  return -0.02;
+}
+
+// ── 4. Path builder ───────────────────────────────────────────────
+// Builds a CatmullRom path for one smoke wand.
+// seedX, seedY = far-upstream position (far in front of car).
+// The path runs from Z=+7 (far front) to Z=-6 (wake).
+function buildWandPath(seedX, seedY, nPts = 80) {
+  const pts = [];
+  for (let i = 0; i < nPts; i++) {
+    const t  = i / (nPts - 1);
+    const pz = 7.0 - t * 13.0;   // +7 → -6
+
+    let x = seedX;
+    let y = seedY;
+
+    const top     = carTopY(pz);
+    const onCar   = top > -90 && Math.abs(seedX) < 0.95;
+
+    if (onCar) {
+      // Push y upward to ride the body surface
+      const clearance = 0.05 + Math.abs(seedX) * 0.03;
+      if (y < top + clearance) {
+        y = top + clearance;
+      }
+    }
+
+    // Wheel arch splay: outer lanes puff outward over arches
+    if (Math.abs(seedX) > 0.60 && pz > -3.2 && pz < 3.2) {
+      const arch = 0.10 * Math.max(0, Math.sin((3.2 - Math.abs(pz)) / 3.2 * Math.PI));
+      x = seedX > 0 ? seedX + arch : seedX - arch;
+    }
+
+    // Wake recovery: converge back toward far-field Y behind the car
+    if (pz < -3.3) {
+      const wt = Math.min((-3.3 - pz) / 3.0, 1.0);
+      y += (seedY - y) * wt * 0.45;
+    }
+
+    pts.push(new THREE.Vector3(x, y, pz));
+  }
+  return pts;
+}
+
+// ── 5. Define the 8 smoke wands ───────────────────────────────────
+//
+//  Position key (looking from above, nose pointing +Z):
+//    x=0       → centreline
+//    x=±0.35   → just inside the A-pillars
+//    x=±0.72   → over the door mirrors / shoulder
+//    x=0, y=1.1 → high free-stream above roof
+//    x=±0.52, y=-0.28 → underbody / sill
+//
+const wandDefs = [
+  // 1. Centre hood → roofline → fastback
+  { x:  0.00, y:  0.08, radius: 0.035, opacity: 0.62,
+    color: new THREE.Color(0x38d8ff) },
+
+  // 2. Left of centre (A-pillar line)
+  { x: -0.35, y:  0.07, radius: 0.026, opacity: 0.50,
+    color: new THREE.Color(0x28c8f0) },
+
+  // 3. Right of centre (A-pillar line)
+  { x:  0.35, y:  0.07, radius: 0.026, opacity: 0.50,
+    color: new THREE.Color(0x28c8f0) },
+
+  // 4. Left door mirror / shoulder
+  { x: -0.72, y:  0.20, radius: 0.020, opacity: 0.42,
+    color: new THREE.Color(0x20b8e8) },
+
+  // 5. Right door mirror / shoulder
+  { x:  0.72, y:  0.20, radius: 0.020, opacity: 0.42,
+    color: new THREE.Color(0x20b8e8) },
+
+  // 6. High free-stream (above roof – barely deflected)
+  { x:  0.00, y:  1.15, radius: 0.018, opacity: 0.30,
+    color: new THREE.Color(0x70eeff) },
+
+  // 7. Left underbody / sill
+  { x: -0.52, y: -0.28, radius: 0.016, opacity: 0.35,
+    color: new THREE.Color(0x18a8d8) },
+
+  // 8. Right underbody / sill
+  { x:  0.52, y: -0.28, radius: 0.016, opacity: 0.35,
+    color: new THREE.Color(0x18a8d8) },
+];
+
+// ── 6. Build geometry + materials ────────────────────────────────
+const smokeWands = wandDefs.map((def, i) => {
+  const pts   = buildWandPath(def.x, def.y, 80);
+  const curve = new THREE.CatmullRomCurve3(pts);
+
+  // TubeGeometry: tubularSegments=160 makes the curve silky smooth
+  const geo   = new THREE.TubeGeometry(curve, 160, def.radius, 10, false);
+
+  const mat   = new THREE.ShaderMaterial({
+    vertexShader:   smokeVert,
+    fragmentShader: smokeFrag,
+    uniforms: {
+      uColor:    { value: def.color },
+      uTime:     { value: 0.0 },
+      uOpacity:  { value: def.opacity },
+      uProgress: { value: 1.0 },   // animated each frame
+    },
     transparent: true,
-    opacity,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
+    depthWrite:  false,
+    blending:    THREE.AdditiveBlending,
+    side:        THREE.DoubleSide,
   });
-  scene.add(new THREE.Line(geo, mat));
+
+  const mesh = new THREE.Mesh(geo, mat);
+  scene.add(mesh);
+
+  return {
+    mesh, mat,
+    phaseOffset: (i / wandDefs.length),   // stagger so they don't all pulse together
+    speedMult: 0.85 + Math.random() * 0.30,
+  };
 });
 
-// ── Deflection logic ──────────────────────────
-// Given a streamline's far-field (x0, y0) and a Z position,
-// compute where it actually is after deflecting around the car.
-function deflect(x0, y0, pz) {
-  const bTop  = bodyTopY(pz);
-  const bSide = bodySideX(pz);
-  const inCarWidth = Math.abs(x0) < bSide + 0.05;
-
-  let x = x0;
-  let y = y0;
-
-  if (inCarWidth && bTop > -100) {
-    // Vertical deflection: push line up if it would clip the body
-    const clearance = 0.08; // gap between line and body surface
-    if (y < bTop + clearance) {
-      // Smoothly push up – more deflection closer to car centre
-      const centreFactor = 1.0 - Math.abs(x0) / (bSide + 0.3);
-      const push = (bTop + clearance - y) * Math.max(centreFactor, 0.3);
-      y = y + push;
-    }
-    // Horizontal deflection: lines near the car width edge splay outward
-    const edgeDist = bSide - Math.abs(x0);
-    if (edgeDist < 0.3) {
-      const splay = (0.3 - edgeDist) / 0.3 * 0.25;
-      x = x0 > 0 ? x0 + splay : x0 - splay;
-    }
-  }
-
-  // Wake expansion: lines spread slightly behind the car
-  if (pz < -3.0 && inCarWidth) {
-    const wakeT = Math.min((-3.0 - pz) / 2.0, 1.0);
-    y = y - wakeT * 0.2 * (y > 0 ? 1 : -1); // gently converge back
-  }
-
-  return { x, y };
-}
-
-// ─────────────────────────────────────────────
-// ANIMATION LOOP
-// ─────────────────────────────────────────────
+// ── 7. Animation loop ─────────────────────────────────────────────
 const clock = new THREE.Clock();
 
 function animate() {
@@ -678,37 +725,31 @@ function animate() {
   const delta   = clock.getDelta();
   const elapsed = clock.getElapsedTime();
 
-  // Speed mapping: 40 mph → 0.45, 100 mph → 2.8
-  const simSpeed = 0.45 + ((currentSpeed - 40) / 60) * 2.35;
+  // 40 mph → progress speed 0.28/s,  100 mph → 0.90/s
+  const baseSpeed = 0.28 + ((currentSpeed - 40) / 60) * 0.62;
 
-  for (let i = 0; i < STREAM_COUNT; i++) {
-    const pa  = sGeos[i].attributes.position;
-    const s   = streamlines[i];
+  smokeWands.forEach(({ mat, phaseOffset, speedMult }) => {
+    mat.uniforms.uTime.value = elapsed;
 
-    // Head of this line: starts far in front (+Z) and cycles backward
-    // We start lines well AHEAD of the car so you see the approach
-    const headZ = 6.5 - ((elapsed * simSpeed * s.speed * 1.8 + sOffsets[i]) % CYCLE);
-
-    for (let k = 0; k <= SEG; k++) {
-      const pz = headZ - k * SEG_LEN;
-      const { x, y } = deflect(s.x, s.y, pz);
-      pa.setXYZ(k, x, y, pz);
-    }
-    pa.needsUpdate = true;
-  }
+    // Animate the "slug" sweeping from tail (0) to head (1) and looping
+    const raw = ((elapsed * baseSpeed * speedMult) + phaseOffset) % 1.0;
+    // We want the slug to sweep 0→1, pause briefly, then reset
+    // Use a sawtooth that slows at the tip for a satisfying "whoosh"
+    mat.uniforms.uProgress.value = raw;
+  });
 
   controls.update();
-  renderer.render(scene, camera);
+  composer.render();   // bloom-enabled render
 }
 animate();
 
-// ─────────────────────────────────────────────
-// RESIZE
-// ─────────────────────────────────────────────
+// ── 8. Resize ─────────────────────────────────────────────────────
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
+  bloomPass.setSize(window.innerWidth, window.innerHeight);
 });
 </script>
 </body>
