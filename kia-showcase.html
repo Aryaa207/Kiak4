@@ -134,10 +134,6 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader }    from 'three/addons/loaders/GLTFLoader.js';
 import { RGBELoader }    from 'three/addons/loaders/RGBELoader.js';
 import { DRACOLoader }   from 'three/addons/loaders/DRACOLoader.js';
-import { EffectComposer }  from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass }      from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutputPass }      from 'three/addons/postprocessing/OutputPass.js';
 
 // ── Speed state ──────────────────────────────────────────────────
 let currentSpeed = 40;
@@ -181,18 +177,6 @@ Object.assign(controls, {
   enableDamping: true, dampingFactor: 0.06,
 });
 
-// ── Bloom post-processing ────────────────────────────────────────
-// threshold=0.85: only the brightest paint reflections bloom.
-// The dark car body and smoke tubes fall below the threshold.
-// FIX 1c: single-pass — no layer split, no autoClear mismatch.
-const composer = new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene, camera));
-const bloomPass = new UnrealBloomPass(
-  new THREE.Vector2(window.innerWidth, window.innerHeight),
-  0.55, 0.40, 0.85   // strength, radius, threshold
-);
-composer.addPass(bloomPass);
-composer.addPass(new OutputPass());
 
 // ── Lighting ─────────────────────────────────────────────────────
 scene.add(new THREE.AmbientLight(0xffffff, 0.15));
@@ -282,11 +266,12 @@ const draco = new DRACOLoader();
 draco.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
 const gltf = new GLTFLoader();
 gltf.setDRACOLoader(draco);
+console.log('[K4] Starting GLB load from ./kiak4.glb');
 gltf.load('./kiak4.glb',
   (g) => {
     applyMaterials(g.scene);
     g.scene.position.y = -0.5;
-    scene.add(g.scene);
+    console.log('[K4] Model loaded successfully. Meshes:', g.scene.children.length); scene.add(g.scene);
     loaderEl.classList.add('hidden');
     setTimeout(() => loaderEl.style.display = 'none', 900);
   },
@@ -424,7 +409,7 @@ function animate() {
   for(const m of wheelMeshes) m.rotation.x -= wRPS * delta;
 
   controls.update();
-  composer.render();
+  renderer.render(scene, camera);
 }
 animate();
 
@@ -433,8 +418,6 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth/window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
-  composer.setSize(window.innerWidth, window.innerHeight);
-  bloomPass.setSize(window.innerWidth, window.innerHeight);
 });
 </script>
 </body>
