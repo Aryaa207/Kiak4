@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>2025 Kia K4 GT-Line | Aurora Black Pearl</title>
+
+  <!-- Three.js + addons from CDN – no installation needed -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;900&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet"/>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --accent: #60b8ff;
+      --accent2: #38d9ff;
+      --bg: #06060f;
+      --text: #e2e8f0;
+      --muted: rgba(255,255,255,0.35);
+    }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: var(--bg);
+      overflow: hidden;
+      font-family: 'Rajdhani', sans-serif;
+    }
+
+    /* ── Canvas ── */
+    #canvas-container {
+      position: fixed;
+      inset: 0;
+    }
+    canvas { display: block; width: 100% !important; height: 100% !important; }
+
+    /* ── Loading screen ── */
+    #loader {
+      position: fixed; inset: 0;
+      background: var(--bg);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 20px; z-index: 100;
+      transition: opacity 0.8s ease;
+    }
+    #loader.hidden { opacity: 0; pointer-events: none; }
+
+    .loader-title {
+      font-family: 'Orbitron', monospace;
+      font-size: clamp(13px, 2.5vw, 18px);
+      letter-spacing: .35em;
+      color: var(--accent);
+      text-shadow: 0 0 20px #60b8ff88;
+    }
+    .loader-bar-wrap {
+      width: 220px; height: 2px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 2px; overflow: hidden;
+    }
+    .loader-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      width: 0%;
+      transition: width 0.3s ease;
+      box-shadow: 0 0 10px var(--accent);
+    }
+    .loader-pct {
+      font-family: 'Orbitron', monospace;
+      font-size: 11px; letter-spacing: .2em;
+      color: var(--muted);
+    }
+
+    /* ── UI Chrome ── */
+    .ui-top {
+      position: fixed; top: 0; left: 0; right: 0;
+      padding: 24px 32px;
+      display: flex; align-items: flex-start; justify-content: space-between;
+      pointer-events: none;
+      background: linear-gradient(to bottom, rgba(6,6,15,0.8) 0%, transparent 100%);
+    }
+
+    .brand {
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .brand-name {
+      font-family: 'Orbitron', monospace;
+      font-size: clamp(14px, 2.5vw, 22px);
+      font-weight: 900;
+      letter-spacing: .25em;
+      color: #fff;
+      text-shadow: 0 0 40px rgba(96,184,255,0.3);
+    }
+    .brand-sub {
+      font-family: 'Orbitron', monospace;
+      font-size: clamp(8px, 1.2vw, 10px);
+      letter-spacing: .5em;
+      color: var(--accent);
+      opacity: 0.8;
+    }
+
+    .ui-stats {
+      display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
+    }
+    .stat-row {
+      font-family: 'Orbitron', monospace;
+      font-size: 9px; letter-spacing: .15em;
+      color: var(--muted);
+    }
+    .stat-val { color: var(--accent); }
+
+    /* ── Speed Panel ── */
+    .speed-panel {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      padding: 20px 24px 28px;
+      background: linear-gradient(to top, rgba(6,6,15,0.95) 0%, transparent 100%);
+      display: flex; flex-direction: column; align-items: center; gap: 12px;
+    }
+
+    .speed-label {
+      font-family: 'Orbitron', monospace;
+      font-size: 11px; letter-spacing: .25em;
+      color: var(--muted);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .speed-mph {
+      color: #fff; font-size: 20px; font-weight: 600;
+      text-shadow: 0 0 16px var(--accent);
+      min-width: 40px; text-align: right;
+    }
+
+    /* Preset buttons */
+    .speed-presets {
+      display: flex; gap: 8px;
+    }
+    .preset-btn {
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.12);
+      color: rgba(255,255,255,0.5);
+      border-radius: 4px;
+      padding: 5px 14px;
+      font-family: 'Orbitron', monospace;
+      font-size: 10px; letter-spacing: .15em;
+      cursor: pointer;
+      transition: all .2s;
+    }
+    .preset-btn:hover,
+    .preset-btn.active {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(96,184,255,0.08);
+      box-shadow: 0 0 12px rgba(96,184,255,0.15);
+    }
+
+    /* Slider */
+    .speed-slider {
+      width: min(280px, 80vw);
+      -webkit-appearance: none;
+      appearance: none;
+      height: 2px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+    .speed-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 10px var(--accent), 0 0 20px rgba(96,184,255,0.4);
+      cursor: pointer;
+      transition: transform .15s;
+    }
+    .speed-slider::-webkit-slider-thumb:hover { transform: scale(1.3); }
+
+    /* Hint */
+    .hint {
+      position: fixed;
+      bottom: 130px; right: 24px;
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 11px; letter-spacing: .1em;
+      color: var(--muted);
+      text-align: right;
+      line-height: 1.8;
+      pointer-events: none;
+    }
+
+    /* Vignette */
+    .vignette {
+      position: fixed; inset: 0;
+      background: radial-gradient(ellipse at center, transparent 45%, rgba(6,6,15,0.7) 100%);
+      pointer-events: none;
+    }
+
+    /* Corner accent lines */
+    .corner { position: fixed; width: 40px; height: 40px; }
+    .corner-tl { top: 16px; left: 16px; border-top: 1px solid rgba(96,184,255,0.3); border-left: 1px solid rgba(96,184,255,0.3); }
+    .corner-tr { top: 16px; right: 16px; border-top: 1px solid rgba(96,184,255,0.3); border-right: 1px solid rgba(96,184,255,0.3); }
+    .corner-bl { bottom: 90px; left: 16px; border-bottom: 1px solid rgba(96,184,255,0.3); border-left: 1px solid rgba(96,184,255,0.3); }
+    .corner-br { bottom: 90px; right: 16px; border-bottom: 1px solid rgba(96,184,255,0.3); border-right: 1px solid rgba(96,184,255,0.3); }
+
+    @media (max-width: 480px) {
+      .ui-stats { display: none; }
+      .hint { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Loading screen -->
+<div id="loader">
+  <div class="loader-title">LOADING K4 GT-LINE</div>
+  <div class="loader-bar-wrap"><div class="loader-bar" id="loader-bar"></div></div>
+  <div class="loader-pct" id="loader-pct">0%</div>
+</div>
+
+<!-- Three.js canvas -->
+<div id="canvas-container"></div>
+
+<!-- Decorative corners -->
+<div class="corner corner-tl"></div>
+<div class="corner corner-tr"></div>
+<div class="corner corner-bl"></div>
+<div class="corner corner-br"></div>
+
+<!-- Vignette -->
+<div class="vignette"></div>
+
+<!-- Top UI -->
+<div class="ui-top">
+  <div class="brand">
+    <div class="brand-name">KIA K4 GT-LINE</div>
+    <div class="brand-sub">AURORA BLACK PEARL · 2025</div>
+  </div>
+  <div class="ui-stats">
+    <div class="stat-row">ENGINE &nbsp;<span class="stat-val" id="stat-engine">2.0L NATURALLY ASPIRATED</span></div>
+    <div class="stat-row">OUTPUT &nbsp;<span class="stat-val">147 HP · 132 LB-FT</span></div>
+    <div class="stat-row">DRIVE &nbsp;<span class="stat-val">FWD · CVT</span></div>
+  </div>
+</div>
+
+<!-- Drag hint -->
+<div class="hint">
+  DRAG TO ROTATE<br/>
+  SCROLL TO ZOOM
+</div>
+
+<!-- Speed panel -->
+<div class="speed-panel">
+  <div class="speed-label">
+    AIRFLOW SIMULATION &nbsp;·&nbsp;
+    <span class="speed-mph" id="speed-display">40</span>
+    &nbsp;MPH
+  </div>
+  <div class="speed-presets">
+    <button class="preset-btn active" data-speed="40">40</button>
+    <button class="preset-btn" data-speed="60">60</button>
+    <button class="preset-btn" data-speed="80">80</button>
+    <button class="preset-btn" data-speed="100">100</button>
+  </div>
+  <input type="range" class="speed-slider" id="speed-slider" min="40" max="100" step="1" value="40"/>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls }  from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader }     from 'three/addons/loaders/GLTFLoader.js';
+import { RGBELoader }     from 'three/addons/loaders/RGBELoader.js';
+import { DRACOLoader }    from 'three/addons/loaders/DRACOLoader.js';
+
+// ─────────────────────────────────────────────
+// SPEED STATE
+// ─────────────────────────────────────────────
+let currentSpeed = 40; // mph
+
+const slider       = document.getElementById('speed-slider');
+const speedDisplay = document.getElementById('speed-display');
+const presetBtns   = document.querySelectorAll('.preset-btn');
+
+function setSpeed(v) {
+  currentSpeed = v;
+  slider.value = v;
+  speedDisplay.textContent = v;
+  presetBtns.forEach(b => b.classList.toggle('active', +b.dataset.speed === v));
+}
+
+slider.addEventListener('input', () => setSpeed(+slider.value));
+presetBtns.forEach(b => b.addEventListener('click', () => setSpeed(+b.dataset.speed)));
+
+// ─────────────────────────────────────────────
+// RENDERER
+// ─────────────────────────────────────────────
+const container = document.getElementById('canvas-container');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.3;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+container.appendChild(renderer.domElement);
+
+// ─────────────────────────────────────────────
+// SCENE + CAMERA
+// ─────────────────────────────────────────────
+const scene  = new THREE.Scene();
+scene.background = new THREE.Color(0x06060f);
+scene.fog = new THREE.FogExp2(0x06060f, 0.04);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(5, 2, 5);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enablePan     = false;
+controls.minDistance   = 3;
+controls.maxDistance   = 12;
+controls.minPolarAngle = 0.15;
+controls.maxPolarAngle = Math.PI / 2.1;
+controls.autoRotate    = true;
+controls.autoRotateSpeed = 0.5;
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+
+// ─────────────────────────────────────────────
+// LIGHTING
+// ─────────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0xffffff, 0.15));
+
+const sun = new THREE.DirectionalLight(0xffffff, 1.4);
+sun.position.set(5, 8, 3);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 0.5;
+sun.shadow.camera.far  = 25;
+sun.shadow.camera.left = sun.shadow.camera.bottom = -6;
+sun.shadow.camera.right = sun.shadow.camera.top   =  6;
+scene.add(sun);
+
+const fill = new THREE.DirectionalLight(0x4488ff, 0.5);
+fill.position.set(-5, 3, -4);
+scene.add(fill);
+
+const rim = new THREE.DirectionalLight(0xffffff, 0.3);
+rim.position.set(0, 2, -6);
+scene.add(rim);
+
+// ─────────────────────────────────────────────
+// HDRI ENVIRONMENT  (studio-like sky for sharp reflections)
+// Using a public domain HDRI from Poly Haven via CDN
+// ─────────────────────────────────────────────
+const rgbeLoader = new RGBELoader();
+rgbeLoader.load(
+  'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_09_1k.hdr',
+  (hdr) => {
+    hdr.mapping = THREE.EquirectangularReflectionMapping;
+    scene.environment = hdr;  // used for reflections only (not background)
+  },
+  undefined,
+  () => {
+    // Fallback if network blocked – create a synthetic env map
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const envScene = new THREE.RoomEnvironment();
+    scene.environment = pmrem.fromScene(envScene).texture;
+    pmrem.dispose();
+  }
+);
+
+// ─────────────────────────────────────────────
+// GROUND SHADOW PLANE
+// ─────────────────────────────────────────────
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(20, 20),
+  new THREE.ShadowMaterial({ opacity: 0.45 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -0.5;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Subtle reflective floor
+const floorMat = new THREE.MeshStandardMaterial({
+  color: 0x0a0a14,
+  metalness: 0.4,
+  roughness: 0.6,
+  envMapIntensity: 0.5,
+});
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), floorMat);
+floor.rotation.x = -Math.PI / 2;
+floor.position.y  = -0.501;
+scene.add(floor);
+
+// ─────────────────────────────────────────────
+// LOAD GLB MODEL
+// ─────────────────────────────────────────────
+const loaderBar = document.getElementById('loader-bar');
+const loaderPct = document.getElementById('loader-pct');
+const loaderEl  = document.getElementById('loader');
+
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+
+const gltfLoader = new GLTFLoader();
+gltfLoader.setDRACOLoader(dracoLoader);
+
+// ── Material presets ──────────────────────────
+const AURORA_BLACK = new THREE.MeshStandardMaterial({
+  color: new THREE.Color(0x080810),
+  metalness: 0.9,
+  roughness: 0.08,
+  envMapIntensity: 3.0,
+});
+
+const CHROME = new THREE.MeshStandardMaterial({
+  color: new THREE.Color(0xc0c8d0),
+  metalness: 1.0,
+  roughness: 0.04,
+  envMapIntensity: 3.5,
+});
+
+const GLASS = new THREE.MeshPhysicalMaterial({
+  color: new THREE.Color(0x8ab8d8),
+  metalness: 0.0,
+  roughness: 0.0,
+  transmission: 0.9,
+  thickness: 0.4,
+  transparent: true,
+  opacity: 0.25,
+  envMapIntensity: 1.5,
+});
+
+const RUBBER = new THREE.MeshStandardMaterial({
+  color: new THREE.Color(0x111111),
+  metalness: 0.0,
+  roughness: 0.95,
+});
+
+function applyMaterials(model) {
+  model.traverse((node) => {
+    if (!node.isMesh) return;
+    node.castShadow    = true;
+    node.receiveShadow = true;
+
+    const n = node.name.toLowerCase();
+
+    if (n.includes('body') || n.includes('paint') || n.includes('panel') ||
+        n.includes('hood') || n.includes('door') || n.includes('fender') ||
+        n.includes('roof') || n.includes('trunk') || n.includes('bumper')) {
+      node.material = AURORA_BLACK.clone();
+    } else if (n.includes('chrome') || n.includes('trim') || n.includes('grille') ||
+               n.includes('exhaust') || n.includes('mirror')) {
+      node.material = CHROME.clone();
+    } else if (n.includes('glass') || n.includes('window') || n.includes('windshield') ||
+               n.includes('wind') || n.includes('screen')) {
+      node.material = GLASS.clone();
+    } else if (n.includes('tyre') || n.includes('tire') || n.includes('rubber')) {
+      node.material = RUBBER.clone();
+    }
+    // Anything not matched keeps its original material from the GLB
+  });
+}
+
+gltfLoader.load(
+  './kiak4.glb',                  // relative to index.html
+  (gltf) => {
+    applyMaterials(gltf.scene);
+    gltf.scene.position.y = -0.5;
+    scene.add(gltf.scene);
+
+    // Hide loader
+    loaderEl.classList.add('hidden');
+    setTimeout(() => loaderEl.style.display = 'none', 900);
+  },
+  (xhr) => {
+    if (xhr.lengthComputable) {
+      const pct = Math.round(xhr.loaded / xhr.total * 100);
+      loaderBar.style.width = pct + '%';
+      loaderPct.textContent  = pct + '%';
+    }
+  },
+  (err) => {
+    console.error('GLB load error:', err);
+    loaderPct.textContent = 'MODEL NOT FOUND – place kiak4.glb next to index.html';
+    loaderBar.style.background = '#f87171';
+  }
+);
+
+// ─────────────────────────────────────────────
+// AIRFLOW PARTICLES
+// ─────────────────────────────────────────────
+const PARTICLE_COUNT = 900;
+const pPositions  = new Float32Array(PARTICLE_COUNT * 3);
+const pVelocities = new Float32Array(PARTICLE_COUNT);
+const pPhases     = new Float32Array(PARTICLE_COUNT);
+
+for (let i = 0; i < PARTICLE_COUNT; i++) {
+  pPositions[i*3+0] = -4 + Math.random() * 8;
+  pPositions[i*3+1] = 0.3 + Math.random() * 0.8;
+  pPositions[i*3+2] = (Math.random() - 0.5) * 1.8;
+  pVelocities[i]    = 0.5 + Math.random() * 0.5;
+  pPhases[i]        = Math.random() * Math.PI * 2;
+}
+
+const pGeo  = new THREE.BufferGeometry();
+const pAttr = new THREE.BufferAttribute(pPositions, 3);
+pAttr.setUsage(THREE.DynamicDrawUsage);
+pGeo.setAttribute('position', pAttr);
+
+const pMat = new THREE.PointsMaterial({
+  size: 0.018,
+  color: 0x80ccff,
+  transparent: true,
+  opacity: 0.55,
+  sizeAttenuation: true,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
+});
+scene.add(new THREE.Points(pGeo, pMat));
+
+// ─────────────────────────────────────────────
+// STREAMLINES (lines following roofline curve)
+// ─────────────────────────────────────────────
+const LINE_COUNT = 32;
+const SEGMENTS   = 28;
+const lineGeos   = [];
+const lineLanes  = [];
+const lineBaseY  = [];
+const lineSpeeds = [];
+const lineOffsets= [];
+
+for (let i = 0; i < LINE_COUNT; i++) {
+  const pts = [];
+  for (let s = 0; s < SEGMENTS; s++) pts.push(new THREE.Vector3());
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  geo.attributes.position.setUsage(THREE.DynamicDrawUsage);
+  lineGeos.push(geo);
+  lineLanes.push((Math.random() - 0.5) * 1.7);
+  lineBaseY.push(0.28 + Math.random() * 0.6);
+  lineSpeeds.push(0.5 + Math.random() * 0.5);
+  lineOffsets.push(Math.random() * 7.5);
+
+  const mat = new THREE.LineBasicMaterial({
+    color: 0x50aaff,
+    transparent: true,
+    opacity: 0.18 + Math.random() * 0.1,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  scene.add(new THREE.Line(geo, mat));
+}
+
+// Roofline height map: given X position along car length, return Y offset
+function rooflineY(px, base) {
+  // Hood rise: front (px≈-2.5) to windshield (px≈-0.5)
+  if (px > -3.0 && px < -0.5) {
+    const t = (px + 3.0) / 2.5;
+    return base + t * 0.55;
+  }
+  // Flat roof: (px≈-0.5 to 0.8)
+  if (px >= -0.5 && px <= 0.8) {
+    return base + 0.55;
+  }
+  // Fastback descent: (px≈0.8 to 2.8)
+  if (px > 0.8 && px < 3.0) {
+    const t = (px - 0.8) / 2.2;
+    return base + 0.55 - t * 0.6;
+  }
+  return base;
+}
+
+// ─────────────────────────────────────────────
+// ANIMATION LOOP
+// ─────────────────────────────────────────────
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const delta = clock.getDelta();
+  const elapsed = clock.getElapsedTime();
+
+  // mph → sim speed mapping: 40mph=0.6, 100mph=2.6
+  const simSpeed = 0.6 + ((currentSpeed - 40) / 60) * 2.0;
+
+  // ── Update particles ──
+  const pos = pAttr.array;
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    pos[i*3+0] -= delta * simSpeed * pVelocities[i] * 2.4;
+
+    if (pos[i*3+0] < -4.2) {
+      pos[i*3+0] = 3.8 + Math.random() * 0.8;
+      pos[i*3+2] = (Math.random() - 0.5) * 1.8;
+    }
+
+    const targetY = rooflineY(pos[i*3+0], 0.28 + (pVelocities[i] - 0.5) * 0.5);
+    pos[i*3+1] += (targetY - pos[i*3+1]) * Math.min(delta * 2.0, 1);
+  }
+  pAttr.needsUpdate = true;
+
+  // ── Update streamlines ──
+  for (let i = 0; i < LINE_COUNT; i++) {
+    const geo = lineGeos[i];
+    const pa  = geo.attributes.position;
+    const headX = 3.8 - ((elapsed * simSpeed * lineSpeeds[i] * 2.4 + lineOffsets[i]) % 8.0);
+
+    for (let s = 0; s < SEGMENTS; s++) {
+      const px = headX - s * 0.20;
+      const y  = rooflineY(px, lineBaseY[i]);
+      pa.setXYZ(s, px, Math.max(y, 0.05), lineLanes[i]);
+    }
+    pa.needsUpdate = true;
+  }
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+// ─────────────────────────────────────────────
+// RESIZE
+// ─────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
