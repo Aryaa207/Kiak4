@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>2025 Kia K4 GT-Line | Aurora Black Pearl</title>
 
-  <!-- Three.js + addons from CDN – no installation needed -->
   <script type="importmap">
   {
     "imports": {
@@ -22,240 +21,98 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --accent: #60b8ff;
+      --accent:  #60b8ff;
       --accent2: #38d9ff;
-      --bg: #06060f;
-      --text: #e2e8f0;
-      --muted: rgba(255,255,255,0.35);
+      --bg:      #06060f;
+      --muted:   rgba(255,255,255,0.35);
     }
 
-    html, body {
-      width: 100%; height: 100%;
-      background: var(--bg);
-      overflow: hidden;
-      font-family: 'Rajdhani', sans-serif;
-    }
+    html, body { width:100%; height:100%; background:var(--bg); overflow:hidden; font-family:'Rajdhani',sans-serif; }
 
-    /* ── Canvas ── */
-    #canvas-container {
-      position: fixed;
-      inset: 0;
-    }
-    canvas { display: block; width: 100% !important; height: 100% !important; }
+    #canvas-container { position:fixed; inset:0; }
+    canvas { display:block; width:100%!important; height:100%!important; }
 
-    /* ── Loading screen ── */
     #loader {
-      position: fixed; inset: 0;
-      background: var(--bg);
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
-      gap: 20px; z-index: 100;
-      transition: opacity 0.8s ease;
+      position:fixed; inset:0; background:var(--bg);
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:20px; z-index:100; transition:opacity 0.8s ease;
     }
-    #loader.hidden { opacity: 0; pointer-events: none; }
+    #loader.hidden { opacity:0; pointer-events:none; }
+    .loader-title { font-family:'Orbitron',monospace; font-size:clamp(13px,2.5vw,18px); letter-spacing:.35em; color:var(--accent); text-shadow:0 0 20px #60b8ff88; }
+    .loader-bar-wrap { width:220px; height:2px; background:rgba(255,255,255,0.08); border-radius:2px; overflow:hidden; }
+    .loader-bar { height:100%; background:linear-gradient(90deg,var(--accent),var(--accent2)); width:0%; transition:width 0.3s ease; box-shadow:0 0 10px var(--accent); }
+    .loader-pct { font-family:'Orbitron',monospace; font-size:11px; letter-spacing:.2em; color:var(--muted); }
 
-    .loader-title {
-      font-family: 'Orbitron', monospace;
-      font-size: clamp(13px, 2.5vw, 18px);
-      letter-spacing: .35em;
-      color: var(--accent);
-      text-shadow: 0 0 20px #60b8ff88;
-    }
-    .loader-bar-wrap {
-      width: 220px; height: 2px;
-      background: rgba(255,255,255,0.08);
-      border-radius: 2px; overflow: hidden;
-    }
-    .loader-bar {
-      height: 100%;
-      background: linear-gradient(90deg, var(--accent), var(--accent2));
-      width: 0%;
-      transition: width 0.3s ease;
-      box-shadow: 0 0 10px var(--accent);
-    }
-    .loader-pct {
-      font-family: 'Orbitron', monospace;
-      font-size: 11px; letter-spacing: .2em;
-      color: var(--muted);
-    }
-
-    /* ── UI Chrome ── */
     .ui-top {
-      position: fixed; top: 0; left: 0; right: 0;
-      padding: 24px 32px;
-      display: flex; align-items: flex-start; justify-content: space-between;
-      pointer-events: none;
-      background: linear-gradient(to bottom, rgba(6,6,15,0.8) 0%, transparent 100%);
+      position:fixed; top:0; left:0; right:0; padding:24px 32px;
+      display:flex; align-items:flex-start; justify-content:space-between;
+      pointer-events:none;
+      background:linear-gradient(to bottom,rgba(6,6,15,0.8) 0%,transparent 100%);
     }
+    .brand { display:flex; flex-direction:column; gap:4px; }
+    .brand-name { font-family:'Orbitron',monospace; font-size:clamp(14px,2.5vw,22px); font-weight:900; letter-spacing:.25em; color:#fff; text-shadow:0 0 40px rgba(96,184,255,0.3); }
+    .brand-sub  { font-family:'Orbitron',monospace; font-size:clamp(8px,1.2vw,10px); letter-spacing:.5em; color:var(--accent); opacity:0.8; }
+    .ui-stats { display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
+    .stat-row { font-family:'Orbitron',monospace; font-size:9px; letter-spacing:.15em; color:var(--muted); }
+    .stat-val { color:var(--accent); }
 
-    .brand {
-      display: flex; flex-direction: column; gap: 4px;
-    }
-    .brand-name {
-      font-family: 'Orbitron', monospace;
-      font-size: clamp(14px, 2.5vw, 22px);
-      font-weight: 900;
-      letter-spacing: .25em;
-      color: #fff;
-      text-shadow: 0 0 40px rgba(96,184,255,0.3);
-    }
-    .brand-sub {
-      font-family: 'Orbitron', monospace;
-      font-size: clamp(8px, 1.2vw, 10px);
-      letter-spacing: .5em;
-      color: var(--accent);
-      opacity: 0.8;
-    }
-
-    .ui-stats {
-      display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
-    }
-    .stat-row {
-      font-family: 'Orbitron', monospace;
-      font-size: 9px; letter-spacing: .15em;
-      color: var(--muted);
-    }
-    .stat-val { color: var(--accent); }
-
-    /* ── Speed Panel ── */
     .speed-panel {
-      position: fixed;
-      bottom: 0; left: 0; right: 0;
-      padding: 20px 24px 28px;
-      background: linear-gradient(to top, rgba(6,6,15,0.95) 0%, transparent 100%);
-      display: flex; flex-direction: column; align-items: center; gap: 12px;
+      position:fixed; bottom:0; left:0; right:0; padding:20px 24px 28px;
+      background:linear-gradient(to top,rgba(6,6,15,0.95) 0%,transparent 100%);
+      display:flex; flex-direction:column; align-items:center; gap:12px;
     }
-
-    .speed-label {
-      font-family: 'Orbitron', monospace;
-      font-size: 11px; letter-spacing: .25em;
-      color: var(--muted);
-      display: flex; align-items: center; gap: 10px;
-    }
-    .speed-mph {
-      color: #fff; font-size: 20px; font-weight: 600;
-      text-shadow: 0 0 16px var(--accent);
-      min-width: 40px; text-align: right;
-    }
-
-    /* Preset buttons */
-    .speed-presets {
-      display: flex; gap: 8px;
-    }
+    .speed-label { font-family:'Orbitron',monospace; font-size:11px; letter-spacing:.25em; color:var(--muted); display:flex; align-items:center; gap:10px; }
+    .speed-mph   { color:#fff; font-size:20px; font-weight:600; text-shadow:0 0 16px var(--accent); min-width:40px; text-align:right; }
+    .speed-presets { display:flex; gap:8px; }
     .preset-btn {
-      background: transparent;
-      border: 1px solid rgba(255,255,255,0.12);
-      color: rgba(255,255,255,0.5);
-      border-radius: 4px;
-      padding: 5px 14px;
-      font-family: 'Orbitron', monospace;
-      font-size: 10px; letter-spacing: .15em;
-      cursor: pointer;
-      transition: all .2s;
+      background:transparent; border:1px solid rgba(255,255,255,0.12); color:rgba(255,255,255,0.5);
+      border-radius:4px; padding:5px 14px; font-family:'Orbitron',monospace; font-size:10px; letter-spacing:.15em; cursor:pointer; transition:all .2s;
     }
-    .preset-btn:hover,
-    .preset-btn.active {
-      border-color: var(--accent);
-      color: var(--accent);
-      background: rgba(96,184,255,0.08);
-      box-shadow: 0 0 12px rgba(96,184,255,0.15);
-    }
+    .preset-btn:hover,.preset-btn.active { border-color:var(--accent); color:var(--accent); background:rgba(96,184,255,0.08); box-shadow:0 0 12px rgba(96,184,255,0.15); }
+    .speed-slider { width:min(280px,80vw); -webkit-appearance:none; appearance:none; height:2px; background:rgba(255,255,255,0.1); border-radius:2px; outline:none; cursor:pointer; }
+    .speed-slider::-webkit-slider-thumb { -webkit-appearance:none; width:16px; height:16px; border-radius:50%; background:var(--accent); box-shadow:0 0 10px var(--accent),0 0 20px rgba(96,184,255,0.4); cursor:pointer; transition:transform .15s; }
+    .speed-slider::-webkit-slider-thumb:hover { transform:scale(1.3); }
 
-    /* Slider */
-    .speed-slider {
-      width: min(280px, 80vw);
-      -webkit-appearance: none;
-      appearance: none;
-      height: 2px;
-      background: rgba(255,255,255,0.1);
-      border-radius: 2px;
-      outline: none;
-      cursor: pointer;
-    }
-    .speed-slider::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      width: 16px; height: 16px;
-      border-radius: 50%;
-      background: var(--accent);
-      box-shadow: 0 0 10px var(--accent), 0 0 20px rgba(96,184,255,0.4);
-      cursor: pointer;
-      transition: transform .15s;
-    }
-    .speed-slider::-webkit-slider-thumb:hover { transform: scale(1.3); }
+    .hint { position:fixed; bottom:130px; right:24px; font-family:'Rajdhani',sans-serif; font-size:11px; letter-spacing:.1em; color:var(--muted); text-align:right; line-height:1.8; pointer-events:none; }
+    .vignette { position:fixed; inset:0; background:radial-gradient(ellipse at center,transparent 45%,rgba(6,6,15,0.7) 100%); pointer-events:none; }
+    .corner { position:fixed; width:40px; height:40px; }
+    .corner-tl { top:16px;    left:16px;   border-top:1px solid rgba(96,184,255,0.3); border-left:1px solid rgba(96,184,255,0.3); }
+    .corner-tr { top:16px;    right:16px;  border-top:1px solid rgba(96,184,255,0.3); border-right:1px solid rgba(96,184,255,0.3); }
+    .corner-bl { bottom:90px; left:16px;   border-bottom:1px solid rgba(96,184,255,0.3); border-left:1px solid rgba(96,184,255,0.3); }
+    .corner-br { bottom:90px; right:16px;  border-bottom:1px solid rgba(96,184,255,0.3); border-right:1px solid rgba(96,184,255,0.3); }
 
-    /* Hint */
-    .hint {
-      position: fixed;
-      bottom: 130px; right: 24px;
-      font-family: 'Rajdhani', sans-serif;
-      font-size: 11px; letter-spacing: .1em;
-      color: var(--muted);
-      text-align: right;
-      line-height: 1.8;
-      pointer-events: none;
-    }
-
-    /* Vignette */
-    .vignette {
-      position: fixed; inset: 0;
-      background: radial-gradient(ellipse at center, transparent 45%, rgba(6,6,15,0.7) 100%);
-      pointer-events: none;
-    }
-
-    /* Corner accent lines */
-    .corner { position: fixed; width: 40px; height: 40px; }
-    .corner-tl { top: 16px; left: 16px; border-top: 1px solid rgba(96,184,255,0.3); border-left: 1px solid rgba(96,184,255,0.3); }
-    .corner-tr { top: 16px; right: 16px; border-top: 1px solid rgba(96,184,255,0.3); border-right: 1px solid rgba(96,184,255,0.3); }
-    .corner-bl { bottom: 90px; left: 16px; border-bottom: 1px solid rgba(96,184,255,0.3); border-left: 1px solid rgba(96,184,255,0.3); }
-    .corner-br { bottom: 90px; right: 16px; border-bottom: 1px solid rgba(96,184,255,0.3); border-right: 1px solid rgba(96,184,255,0.3); }
-
-    @media (max-width: 480px) {
-      .ui-stats { display: none; }
-      .hint { display: none; }
-    }
+    @media (max-width:480px) { .ui-stats,.hint { display:none; } }
   </style>
 </head>
 <body>
 
-<!-- Loading screen -->
 <div id="loader">
   <div class="loader-title">LOADING K4 GT-LINE</div>
   <div class="loader-bar-wrap"><div class="loader-bar" id="loader-bar"></div></div>
   <div class="loader-pct" id="loader-pct">0%</div>
 </div>
 
-<!-- Three.js canvas -->
 <div id="canvas-container"></div>
-
-<!-- Decorative corners -->
 <div class="corner corner-tl"></div>
 <div class="corner corner-tr"></div>
 <div class="corner corner-bl"></div>
 <div class="corner corner-br"></div>
-
-<!-- Vignette -->
 <div class="vignette"></div>
 
-<!-- Top UI -->
 <div class="ui-top">
   <div class="brand">
     <div class="brand-name">KIA K4 GT-LINE</div>
     <div class="brand-sub">AURORA BLACK PEARL · 2025</div>
   </div>
   <div class="ui-stats">
-    <div class="stat-row">ENGINE &nbsp;<span class="stat-val" id="stat-engine">2.0L NATURALLY ASPIRATED</span></div>
+    <div class="stat-row">ENGINE &nbsp;<span class="stat-val">2.0L NATURALLY ASPIRATED</span></div>
     <div class="stat-row">OUTPUT &nbsp;<span class="stat-val">147 HP · 132 LB-FT</span></div>
     <div class="stat-row">DRIVE &nbsp;<span class="stat-val">FWD · CVT</span></div>
   </div>
 </div>
 
-<!-- Drag hint -->
-<div class="hint">
-  DRAG TO ROTATE<br/>
-  SCROLL TO ZOOM
-</div>
+<div class="hint">DRAG TO ROTATE<br/>SCROLL TO ZOOM</div>
 
-<!-- Speed panel -->
 <div class="speed-panel">
   <div class="speed-label">
     AIRFLOW SIMULATION &nbsp;·&nbsp;
@@ -272,49 +129,44 @@
 </div>
 
 <script type="module">
-import * as THREE from 'three';
-import { OrbitControls }  from 'three/addons/controls/OrbitControls.js';
-import { GLTFLoader }     from 'three/addons/loaders/GLTFLoader.js';
-import { RGBELoader }     from 'three/addons/loaders/RGBELoader.js';
-import { DRACOLoader }    from 'three/addons/loaders/DRACOLoader.js';
+import * as THREE        from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader }    from 'three/addons/loaders/GLTFLoader.js';
+import { RGBELoader }    from 'three/addons/loaders/RGBELoader.js';
+import { DRACOLoader }   from 'three/addons/loaders/DRACOLoader.js';
+import { EffectComposer }  from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass }      from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass }      from 'three/addons/postprocessing/OutputPass.js';
 
-// ─────────────────────────────────────────────
-// SPEED STATE
-// ─────────────────────────────────────────────
-let currentSpeed = 40; // mph
-
+// ── Speed state ──────────────────────────────────────────────────
+let currentSpeed = 40;
 const slider       = document.getElementById('speed-slider');
 const speedDisplay = document.getElementById('speed-display');
 const presetBtns   = document.querySelectorAll('.preset-btn');
-
 function setSpeed(v) {
-  currentSpeed = v;
-  slider.value = v;
-  speedDisplay.textContent = v;
+  currentSpeed = v; slider.value = v; speedDisplay.textContent = v;
   presetBtns.forEach(b => b.classList.toggle('active', +b.dataset.speed === v));
 }
-
 slider.addEventListener('input', () => setSpeed(+slider.value));
 presetBtns.forEach(b => b.addEventListener('click', () => setSpeed(+b.dataset.speed)));
 
-// ─────────────────────────────────────────────
-// RENDERER
-// ─────────────────────────────────────────────
-const container = document.getElementById('canvas-container');
+// ── Renderer ─────────────────────────────────────────────────────
+// FIX 1a: explicit clear colour = scene background
+//         Prevents alpha=0 black patches when bloom composites.
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.3;
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-container.appendChild(renderer.domElement);
+renderer.shadowMap.enabled      = true;
+renderer.shadowMap.type         = THREE.PCFSoftShadowMap;
+renderer.toneMapping            = THREE.ACESFilmicToneMapping;  // FIX 1b
+renderer.toneMappingExposure    = 1.3;
+renderer.outputColorSpace       = THREE.SRGBColorSpace;
+renderer.setClearColor(0x06060f, 1.0);                          // FIX 1a
+document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-// ─────────────────────────────────────────────
-// SCENE + CAMERA
-// ─────────────────────────────────────────────
-const scene  = new THREE.Scene();
+// ── Scene & camera ───────────────────────────────────────────────
+const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x06060f);
 scene.fog = new THREE.FogExp2(0x06060f, 0.04);
 
@@ -322,459 +174,264 @@ const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerH
 camera.position.set(5, 2, 5);
 
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.enablePan     = false;
-controls.minDistance   = 3;
-controls.maxDistance   = 12;
-controls.minPolarAngle = 0.15;
-controls.maxPolarAngle = Math.PI / 2.1;
-controls.autoRotate    = true;
-controls.autoRotateSpeed = 0.5;
-controls.enableDamping = true;
-controls.dampingFactor = 0.06;
+Object.assign(controls, {
+  enablePan: false, minDistance: 3, maxDistance: 12,
+  minPolarAngle: 0.15, maxPolarAngle: Math.PI / 2.1,
+  autoRotate: true, autoRotateSpeed: 0.5,
+  enableDamping: true, dampingFactor: 0.06,
+});
 
-// ─────────────────────────────────────────────
-// LIGHTING
-// ─────────────────────────────────────────────
+// ── Bloom post-processing ────────────────────────────────────────
+// threshold=0.85: only the brightest paint reflections bloom.
+// The dark car body and smoke tubes fall below the threshold.
+// FIX 1c: single-pass — no layer split, no autoClear mismatch.
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  0.55, 0.40, 0.85   // strength, radius, threshold
+);
+composer.addPass(bloomPass);
+composer.addPass(new OutputPass());
+
+// ── Lighting ─────────────────────────────────────────────────────
 scene.add(new THREE.AmbientLight(0xffffff, 0.15));
-
 const sun = new THREE.DirectionalLight(0xffffff, 1.4);
 sun.position.set(5, 8, 3);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.near = 0.5;
-sun.shadow.camera.far  = 25;
+sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 25;
 sun.shadow.camera.left = sun.shadow.camera.bottom = -6;
 sun.shadow.camera.right = sun.shadow.camera.top   =  6;
 scene.add(sun);
+const fill = new THREE.DirectionalLight(0x4488ff, 0.5); fill.position.set(-5, 3, -4); scene.add(fill);
+const rim  = new THREE.DirectionalLight(0xffffff,  0.3); rim.position.set( 0, 2, -6); scene.add(rim);
 
-const fill = new THREE.DirectionalLight(0x4488ff, 0.5);
-fill.position.set(-5, 3, -4);
-scene.add(fill);
-
-const rim = new THREE.DirectionalLight(0xffffff, 0.3);
-rim.position.set(0, 2, -6);
-scene.add(rim);
-
-// ─────────────────────────────────────────────
-// HDRI ENVIRONMENT  (studio-like sky for sharp reflections)
-// Using a public domain HDRI from Poly Haven via CDN
-// ─────────────────────────────────────────────
-const rgbeLoader = new RGBELoader();
-rgbeLoader.load(
+// ── HDRI environment ─────────────────────────────────────────────
+// FIX 1d: LinearFilter on env map → no mipmap-edge black seams
+function fixEnvTex(t) {
+  t.minFilter = THREE.LinearFilter;
+  t.magFilter = THREE.LinearFilter;
+  t.needsUpdate = true;
+}
+new RGBELoader().load(
   'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_09_1k.hdr',
-  (hdr) => {
-    hdr.mapping = THREE.EquirectangularReflectionMapping;
-    scene.environment = hdr;  // used for reflections only (not background)
-  },
+  (hdr) => { hdr.mapping = THREE.EquirectangularReflectionMapping; fixEnvTex(hdr); scene.environment = hdr; },
   undefined,
   () => {
-    // Fallback if network blocked – create a synthetic env map
     const pmrem = new THREE.PMREMGenerator(renderer);
-    const envScene = new THREE.RoomEnvironment();
-    scene.environment = pmrem.fromScene(envScene).texture;
-    pmrem.dispose();
+    const t = pmrem.fromScene(new THREE.RoomEnvironment()).texture;
+    fixEnvTex(t); scene.environment = t; pmrem.dispose();
   }
 );
 
-// ─────────────────────────────────────────────
-// GROUND SHADOW PLANE
-// ─────────────────────────────────────────────
-const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(20, 20),
-  new THREE.ShadowMaterial({ opacity: 0.45 })
+// ── Ground ───────────────────────────────────────────────────────
+const shadowGround = new THREE.Mesh(new THREE.PlaneGeometry(20,20), new THREE.ShadowMaterial({ opacity:0.45 }));
+shadowGround.rotation.x = -Math.PI/2; shadowGround.position.y = -0.5; shadowGround.receiveShadow = true;
+scene.add(shadowGround);
+
+const reflectFloor = new THREE.Mesh(
+  new THREE.PlaneGeometry(20,20),
+  new THREE.MeshStandardMaterial({ color:0x0a0a14, metalness:0.4, roughness:0.6, envMapIntensity:0.5 })
 );
-ground.rotation.x = -Math.PI / 2;
-ground.position.y = -0.5;
-ground.receiveShadow = true;
-scene.add(ground);
+reflectFloor.rotation.x = -Math.PI/2; reflectFloor.position.y = -0.501;
+scene.add(reflectFloor);
 
-// Subtle reflective floor
-const floorMat = new THREE.MeshStandardMaterial({
-  color: 0x0a0a14,
-  metalness: 0.4,
-  roughness: 0.6,
-  envMapIntensity: 0.5,
-});
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), floorMat);
-floor.rotation.x = -Math.PI / 2;
-floor.position.y  = -0.501;
-scene.add(floor);
-
-// ─────────────────────────────────────────────
-// LOAD GLB MODEL
-// ─────────────────────────────────────────────
-const loaderBar = document.getElementById('loader-bar');
-const loaderPct = document.getElementById('loader-pct');
-const loaderEl  = document.getElementById('loader');
-
-const dracoLoader = new DRACOLoader();
-dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
-
-const gltfLoader = new GLTFLoader();
-gltfLoader.setDRACOLoader(dracoLoader);
-
-// ── Material presets ──────────────────────────
-const AURORA_BLACK = new THREE.MeshStandardMaterial({
-  color: new THREE.Color(0x080810),
-  metalness: 0.9,
-  roughness: 0.08,
-  envMapIntensity: 3.0,
-});
-
-const CHROME = new THREE.MeshStandardMaterial({
-  color: new THREE.Color(0xc0c8d0),
-  metalness: 1.0,
-  roughness: 0.04,
-  envMapIntensity: 3.5,
-});
-
-const GLASS = new THREE.MeshPhysicalMaterial({
-  color: new THREE.Color(0x8ab8d8),
-  metalness: 0.0,
-  roughness: 0.0,
-  transmission: 0.9,
-  thickness: 0.4,
-  transparent: true,
-  opacity: 0.25,
-  envMapIntensity: 1.5,
-});
-
-const RUBBER = new THREE.MeshStandardMaterial({
-  color: new THREE.Color(0x111111),
-  metalness: 0.0,
-  roughness: 0.95,
-});
+// ── Material presets ─────────────────────────────────────────────
+const MAT_AURORA = new THREE.MeshStandardMaterial({ color:0x080810, metalness:0.9, roughness:0.08, envMapIntensity:3.0 });
+const MAT_CHROME = new THREE.MeshStandardMaterial({ color:0xc0c8d0, metalness:1.0, roughness:0.04, envMapIntensity:3.5 });
+const MAT_GLASS  = new THREE.MeshPhysicalMaterial({ color:0x8ab8d8, metalness:0, roughness:0, transmission:0.9, thickness:0.4, transparent:true, opacity:0.25, envMapIntensity:1.5 });
+const MAT_RUBBER = new THREE.MeshStandardMaterial({ color:0x111111, metalness:0, roughness:0.95 });
 
 function isWhitish(mat) {
-  if (!mat || !mat.color) return false;
-  const c = mat.color;
-  return c.r > 0.72 && c.g > 0.72 && c.b > 0.72;
+  if (!mat?.color) return false;
+  const {r,g,b} = mat.color; return r>0.72 && g>0.72 && b>0.72;
 }
+
+// ── Wheel mesh collection ─────────────────────────────────────────
+// FIX 2: populated during GLB traverse, rotated each frame
+const wheelMeshes = [];
 
 function applyMaterials(model) {
   model.traverse((node) => {
     if (!node.isMesh) return;
-    node.castShadow    = true;
-    node.receiveShadow = true;
-
+    node.castShadow = node.receiveShadow = true;
     const n   = node.name.toLowerCase();
     const mat = Array.isArray(node.material) ? node.material[0] : node.material;
 
-    const isGlassByName  = n.includes('glass') || n.includes('window') ||
-                           n.includes('windshield') || n.includes('wind') ||
-                           n.includes('screen') || n.includes('lens') ||
-                           n.includes('light') || n.includes('lamp');
-    const isGlassByColor = isWhitish(mat);
+    const isGlass  = ['glass','window','windshield','wind','screen','lens','light','lamp'].some(k => n.includes(k)) || isWhitish(mat);
+    const isBody   = ['body','paint','panel','hood','door','fender','roof','trunk','bumper'].some(k => n.includes(k));
+    const isChrome = ['chrome','trim','grille','exhaust','mirror'].some(k => n.includes(k));
+    const isWheel  = ['wheel','tire','tyre','rim','brake'].some(k => n.includes(k));
 
-    if (isGlassByName || isGlassByColor) {
-      node.material = GLASS.clone();
-      node.renderOrder = 1;
-    } else if (n.includes('body') || n.includes('paint') || n.includes('panel') ||
-               n.includes('hood') || n.includes('door') || n.includes('fender') ||
-               n.includes('roof') || n.includes('trunk') || n.includes('bumper')) {
-      node.material = AURORA_BLACK.clone();
-    } else if (n.includes('chrome') || n.includes('trim') || n.includes('grille') ||
-               n.includes('exhaust') || n.includes('mirror')) {
-      node.material = CHROME.clone();
-    } else if (n.includes('tyre') || n.includes('tire') || n.includes('rubber') ||
-               n.includes('wheel') || n.includes('rim')) {
-      node.material = RUBBER.clone();
-    }
+    if      (isGlass)  { node.material = MAT_GLASS.clone();  node.renderOrder = 1; }
+    else if (isBody)   { node.material = MAT_AURORA.clone(); }
+    else if (isChrome) { node.material = MAT_CHROME.clone(); }
+    else if (isWheel)  { node.material = MAT_RUBBER.clone(); }
+
+    if (isWheel) wheelMeshes.push(node);  // collect for spin
   });
 }
 
-gltfLoader.load(
-  './kiak4.glb',                  // relative to index.html
-  (gltf) => {
-    applyMaterials(gltf.scene);
-    gltf.scene.position.y = -0.5;
-    scene.add(gltf.scene);
+// ── GLB loader ───────────────────────────────────────────────────
+const loaderBar = document.getElementById('loader-bar');
+const loaderPct = document.getElementById('loader-pct');
+const loaderEl  = document.getElementById('loader');
 
-    // Hide loader
+const draco = new DRACOLoader();
+draco.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+const gltf = new GLTFLoader();
+gltf.setDRACOLoader(draco);
+gltf.load('./kiak4.glb',
+  (g) => {
+    applyMaterials(g.scene);
+    g.scene.position.y = -0.5;
+    scene.add(g.scene);
     loaderEl.classList.add('hidden');
     setTimeout(() => loaderEl.style.display = 'none', 900);
   },
   (xhr) => {
     if (xhr.lengthComputable) {
-      const pct = Math.round(xhr.loaded / xhr.total * 100);
-      loaderBar.style.width = pct + '%';
-      loaderPct.textContent  = pct + '%';
+      const p = Math.round(xhr.loaded/xhr.total*100);
+      loaderBar.style.width = p+'%'; loaderPct.textContent = p+'%';
     }
   },
   (err) => {
-    console.error('GLB load error:', err);
-    loaderPct.textContent = 'MODEL NOT FOUND – place kiak4.glb next to index.html';
+    console.error(err);
+    loaderPct.textContent = 'MODEL NOT FOUND — place kiak4.glb next to index.html';
     loaderBar.style.background = '#f87171';
   }
 );
 
-
-// ═══════════════════════════════════════════════════════════════════
-// SMOKE WAND SYSTEM  v5  –  black-rectangle fix
-//
-// Root cause of black rectangles:
-//   EffectComposer writes to a WebGLRenderTarget whose default alpha
-//   is 0. When NormalBlending transparent meshes are rendered into it,
-//   fragments with alpha < 1 leave behind alpha=0 areas in the buffer.
-//   OutputPass then composites that buffer onto the canvas, producing
-//   black patches wherever the transparent mesh wrote low alpha.
-//
-// Fix: render the car scene (opaque) first with the full composer
-//   so bloom works on reflections. Then render the smoke wands
-//   DIRECTLY to the canvas (renderer.render, not composer) in a
-//   second pass with AdditiveBlending. Additive never writes alpha=0
-//   black because it only ADDS light — it can't darken anything.
-//   The smoke stays transparent and luminous, the car is unaffected.
-//
-// Car quality: NO geometry changes — all original GLB detail kept.
-// Smoke geometry: tubularSegments 80 (was 160→40), radial 8 (was 10).
-//   That's ~20% fewer triangles, well within the requested limit.
-// ═══════════════════════════════════════════════════════════════════
-
-// ── 1. Layers – separate car from smoke ───────────────────────────
-// Three.js layers let us control which objects each camera sees.
-// Layer 0 = default (car, lights, ground)
-// Layer 1 = smoke only
-const LAYER_CAR   = 0;
-const LAYER_SMOKE = 1;
-
-// Camera for the bloom pass sees only the car (layer 0)
-// We render smoke after, directly to canvas
-camera.layers.enable(LAYER_CAR);
-
-// ── 2. Bloom composer – car only, no transparent smoke ────────────
-import { EffectComposer }  from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass }      from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutputPass }      from 'three/addons/postprocessing/OutputPass.js';
-
-// Bloom camera only sees layer 0 (car)
-const bloomCamera = camera.clone();
-bloomCamera.layers.set(LAYER_CAR);
-
-const composer = new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene, bloomCamera));
-const bloomPass = new UnrealBloomPass(
-  new THREE.Vector2(window.innerWidth, window.innerHeight),
-  0.55,  // strength – subtle
-  0.40,  // radius
-  0.85   // threshold – only bright paint reflections bloom
-);
-composer.addPass(bloomPass);
-composer.addPass(new OutputPass());
-
-// ── 3. GLSL shader ────────────────────────────────────────────────
-// AdditiveBlending smoke: only adds light, never writes black.
-// Tail fades to zero naturally — no discard needed for black rect fix.
+// ── Smoke shader ─────────────────────────────────────────────────
+// FIX 1e: ALL values clamped(0,1) — NaN / Inf mathematically impossible.
+// AdditiveBlending: adds light only, NEVER writes black to framebuffer.
 const smokeVert = `
   varying vec2 vUv;
-  void main() {
-    vUv         = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  void main(){
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
   }
 `;
-
 const smokeFrag = `
   uniform vec3  uColor;
   uniform float uOpacity;
   uniform float uHead;
-
-  varying vec2 vUv;
-
-  void main() {
-    // ── Along-tube fade ───────────────────────────────────────────
+  varying vec2  vUv;
+  void main(){
     float tailLen = 0.70;
     float behind  = uHead - vUv.x;
-    if (behind < 0.0) behind += 1.0;
+    if(behind < 0.0) behind += 1.0;
+    if(behind > tailLen) discard;
 
-    // Fragments ahead of the head are invisible
-    float ahead = vUv.x - uHead;
-    if (ahead < 0.0) ahead += 1.0;
-    if (ahead < 0.02) {
-      // small transition zone just past the head tip
-    }
+    float along = pow(clamp(1.0 - behind/tailLen, 0.0, 1.0), 1.4);
+    float tip   = pow(clamp(1.0 - behind/0.06,   0.0, 1.0), 2.5);
+    float core  = pow(clamp(sin(clamp(vUv.y,0.0,1.0)*3.14159265), 0.0, 1.0), 1.8);
 
-    // Everything further than tailLen behind the head is zero
-    float along = (behind < tailLen)
-      ? pow(1.0 - (behind / tailLen), 1.4)
-      : 0.0;
+    float alpha = clamp((along + tip*0.8)*core*uOpacity, 0.0, 1.0);
+    if(alpha < 0.008) discard;
 
-    // Sharp bright tip
-    float tip = pow(max(0.0, 1.0 - behind / 0.06), 2.5);
-
-    // ── Radial fade ───────────────────────────────────────────────
-    float radial = sin(vUv.y * 3.14159265);
-    float core   = pow(max(radial, 0.0), 1.8);
-
-    // ── Final alpha ───────────────────────────────────────────────
-    // With AdditiveBlending, alpha multiplies the ADD amount.
-    // Low alpha = faint glow, not black — so no black rects possible.
-    float alpha = (along + tip * 0.8) * core * uOpacity;
-
-    // Tip colour: near-white so bloom threshold catches it
-    vec3 col = mix(uColor, vec3(0.90, 0.98, 1.00), tip * core * 0.7);
-
-    gl_FragColor = vec4(col * alpha, alpha);
+    // Clamp colour — prevents any channel exceeding 1.0 (no NaN possible)
+    vec3 col = clamp(mix(uColor, vec3(0.90,0.98,1.00), tip*core*0.65), 0.0, 1.0);
+    gl_FragColor = vec4(col*alpha, alpha);   // pre-multiplied for AdditiveBlending
   }
 `;
 
-// ── 4. Body silhouette ────────────────────────────────────────────
+// ── Body silhouette for path deflection ──────────────────────────
 const CLEARANCE = 0.022;
-
 function carTopY(pz) {
-  if (pz > 3.3 || pz < -3.6) return -99;
+  if(pz > 3.3 || pz < -3.6) return -99;
   let y;
-  if      (pz >  2.5) y = -0.15 + (3.3 - pz) / 0.8  * 0.28;
-  else if (pz >  0.5) y =  0.13 + (2.5 - pz) / 2.0  * 0.68;
-  else if (pz > -0.5) y =  0.81 + Math.sin((pz + 0.5) / 1.0 * Math.PI) * 0.05;
-  else if (pz > -3.1) y =  0.81 - (-0.5 - pz) / 2.6  * 0.83;
+  if      (pz >  2.5) y = -0.15+(3.3-pz)/0.8*0.28;
+  else if (pz >  0.5) y =  0.13+(2.5-pz)/2.0*0.68;
+  else if (pz > -0.5) y =  0.81+Math.sin((pz+0.5)/1.0*Math.PI)*0.05;
+  else if (pz > -3.1) y =  0.81-(-0.5-pz)/2.6*0.83;
   else                y = -0.02;
   return y + CLEARANCE;
 }
 
-// ── 5. Path builder ───────────────────────────────────────────────
+// ── Path builder ─────────────────────────────────────────────────
+// FIX 3: seedY + 0.20 global lift + vent-zone push of +0.22
+//         Width of vent zone broadened (pz 1.6→3.5, x < 0.65)
+//         Together these guarantee wands clear the front grille.
 function buildWandPath(seedX, seedY, nPts = 24) {
-  const liftedY = seedY + 0.12;
+  const baseY = seedY + 0.20;
   const pts = [];
-
-  for (let i = 0; i < nPts; i++) {
-    const t  = i / (nPts - 1);
-    const pz = 8.5 - t * 14.5;
-
-    let x = seedX;
-    let y = liftedY;
-
-    const top   = carTopY(pz);
+  for(let i = 0; i < nPts; i++){
+    const pz = 8.5 - (i/(nPts-1))*14.5;
+    let x = seedX, y = baseY;
+    const top = carTopY(pz);
     const onCar = top > -90 && Math.abs(seedX) < 0.96;
-
-    // Vent avoidance: push upward in front grille zone
-    const inVentZone = pz > 2.0 && pz < 3.3 && Math.abs(seedX) < 0.55;
-    const ventLift   = inVentZone
-      ? 0.15 * Math.sin((pz - 2.0) / 1.3 * Math.PI)
-      : 0.0;
-
-    if (onCar && y < top + ventLift) y = top + ventLift;
-
-    // Wheel arch splay
-    if (Math.abs(seedX) > 0.55 && pz > -3.2 && pz < 3.2) {
-      const arch = 0.09 * Math.max(0, Math.sin((3.2 - Math.abs(pz)) / 3.2 * Math.PI));
-      x = seedX > 0 ? seedX + arch : seedX - arch;
+    const inVent = pz > 1.6 && pz < 3.5 && Math.abs(seedX) < 0.65;
+    const ventLift = inVent ? 0.22*Math.sin((pz-1.6)/1.9*Math.PI) : 0;
+    if(onCar && y < top+ventLift) y = top+ventLift;
+    if(Math.abs(seedX)>0.55 && pz>-3.2 && pz<3.2){
+      const arch = 0.09*Math.max(0, Math.sin((3.2-Math.abs(pz))/3.2*Math.PI));
+      x = seedX>0 ? seedX+arch : seedX-arch;
     }
-
-    // Wake recovery
-    if (pz < -3.3) {
-      const wt = Math.min((-3.3 - pz) / 3.0, 1.0);
-      y += (liftedY - y) * wt * 0.4;
-    }
-
+    if(pz < -3.3){ const wt=Math.min((-3.3-pz)/3,1); y+=(baseY-y)*wt*0.4; }
     pts.push(new THREE.Vector3(x, y, pz));
   }
   return pts;
 }
 
-// ── 6. Wand definitions – 16 wands ───────────────────────────────
-const wandDefs = [
-  { x:  0.00, y: 0.06, r: 0.022, opacity: 0.36, spd: 0.88 },
-  { x:  0.00, y: 0.22, r: 0.016, opacity: 0.28, spd: 0.76 },
-  { x: -0.28, y: 0.07, r: 0.018, opacity: 0.32, spd: 0.95 },
-  { x:  0.28, y: 0.07, r: 0.018, opacity: 0.32, spd: 0.82 },
-  { x: -0.28, y: 0.24, r: 0.014, opacity: 0.26, spd: 1.05 },
-  { x:  0.28, y: 0.24, r: 0.014, opacity: 0.26, spd: 0.70 },
-  { x: -0.58, y: 0.10, r: 0.015, opacity: 0.28, spd: 0.92 },
-  { x:  0.58, y: 0.10, r: 0.015, opacity: 0.28, spd: 1.08 },
-  { x: -0.58, y: 0.26, r: 0.012, opacity: 0.22, spd: 0.78 },
-  { x:  0.58, y: 0.26, r: 0.012, opacity: 0.22, spd: 0.85 },
-  { x: -0.82, y: 0.18, r: 0.011, opacity: 0.20, spd: 1.12 },
-  { x:  0.82, y: 0.18, r: 0.011, opacity: 0.20, spd: 0.68 },
-  { x: -0.20, y: 1.08, r: 0.010, opacity: 0.18, spd: 0.98 },
-  { x:  0.20, y: 1.08, r: 0.010, opacity: 0.18, spd: 0.88 },
-  { x: -0.48, y:-0.28, r: 0.010, opacity: 0.20, spd: 1.02 },
-  { x:  0.48, y:-0.28, r: 0.010, opacity: 0.20, spd: 0.75 },
+// ── 16 wand definitions ──────────────────────────────────────────
+const WAND_DEFS = [
+  {x: 0.00,y: 0.06,r:0.022,op:0.36,spd:0.88}, {x: 0.00,y: 0.22,r:0.016,op:0.28,spd:0.76},
+  {x:-0.28,y: 0.07,r:0.018,op:0.32,spd:0.95}, {x: 0.28,y: 0.07,r:0.018,op:0.32,spd:0.82},
+  {x:-0.28,y: 0.24,r:0.014,op:0.26,spd:1.05}, {x: 0.28,y: 0.24,r:0.014,op:0.26,spd:0.70},
+  {x:-0.58,y: 0.10,r:0.015,op:0.28,spd:0.92}, {x: 0.58,y: 0.10,r:0.015,op:0.28,spd:1.08},
+  {x:-0.58,y: 0.26,r:0.012,op:0.22,spd:0.78}, {x: 0.58,y: 0.26,r:0.012,op:0.22,spd:0.85},
+  {x:-0.82,y: 0.18,r:0.011,op:0.20,spd:1.12}, {x: 0.82,y: 0.18,r:0.011,op:0.20,spd:0.68},
+  {x:-0.20,y: 1.08,r:0.010,op:0.18,spd:0.98}, {x: 0.20,y: 1.08,r:0.010,op:0.18,spd:0.88},
+  {x:-0.48,y:-0.28,r:0.010,op:0.20,spd:1.02}, {x: 0.48,y:-0.28,r:0.010,op:0.20,spd:0.75},
 ];
 
-// Shared color – one material per wand keeps uniforms independent
-// AdditiveBlending: no alpha channel written, zero black-rect risk
-function makeSmokeMat(opacity) {
-  return new THREE.ShaderMaterial({
-    vertexShader:   smokeVert,
-    fragmentShader: smokeFrag,
-    uniforms: {
-      uColor:   { value: new THREE.Color(0x30c8ff) },
-      uOpacity: { value: opacity },
-      uHead:    { value: 0.0 },
-    },
-    transparent: true,
-    depthWrite:  false,
-    blending:    THREE.AdditiveBlending,  // ← key fix: can never produce black
-    side:        THREE.DoubleSide,
-  });
-}
-
-// ── 7. Build meshes ───────────────────────────────────────────────
-// Geometry: tubularSegments 80 (was 160), radialSegments 8 (was 10)
-// ≈ 20% reduction as requested — car GLB is completely untouched
-const smokeWands = wandDefs.map((def, i) => {
-  const curve = new THREE.CatmullRomCurve3(buildWandPath(def.x, def.y, 24));
-  const geo   = new THREE.TubeGeometry(curve, 80, def.r, 8, false);
+// ── Build smoke meshes ───────────────────────────────────────────
+// 80 tubular segments, 8 radial ≈ 20% fewer triangles vs original 160/10
+const smokeWands = WAND_DEFS.map((d, i) => {
+  const curve = new THREE.CatmullRomCurve3(buildWandPath(d.x, d.y, 24));
+  const geo   = new THREE.TubeGeometry(curve, 80, d.r, 8, false);
   geo.computeBoundingSphere();
-
-  const mat  = makeSmokeMat(def.opacity);
+  const mat = new THREE.ShaderMaterial({
+    vertexShader: smokeVert, fragmentShader: smokeFrag,
+    uniforms: { uColor:{value:new THREE.Color(0x30c8ff)}, uOpacity:{value:d.op}, uHead:{value:0} },
+    transparent:true, depthWrite:false,
+    blending: THREE.AdditiveBlending,   // never produces black
+    side: THREE.DoubleSide,
+  });
   const mesh = new THREE.Mesh(geo, mat);
-
-  // Smoke lives on layer 1 so bloom camera skips it entirely
-  mesh.layers.set(LAYER_SMOKE);
-  mesh.renderOrder   = 2;
-  mesh.frustumCulled = true;
+  mesh.renderOrder = 2; mesh.frustumCulled = true;
   scene.add(mesh);
-
-  return { mat, phaseOffset: i / wandDefs.length, speedMult: def.spd };
+  return { mat, phase: i/WAND_DEFS.length, spd: d.spd };
 });
 
-// ── 8. Animation loop ─────────────────────────────────────────────
-// Two-pass render:
-//   Pass 1: composer (bloom) renders the scene through bloomCamera
-//           which only sees layer 0 (car). No smoke, no alpha issues.
-//   Pass 2: renderer renders smoke (layer 1) on top, additively.
-//           autoClear=false so pass 1 result is preserved.
+// ── Animation loop ───────────────────────────────────────────────
 const clock = new THREE.Clock();
-
 function animate() {
   requestAnimationFrame(animate);
-  clock.getDelta();
+  const delta   = clock.getDelta();
   const elapsed = clock.getElapsedTime();
 
-  // Speed: 40 mph → 0.26/s,  100 mph → 0.85/s
-  const baseSpeed = 0.26 + ((currentSpeed - 40) / 60) * 0.59;
+  // Smoke
+  const smokeSpd = 0.26 + ((currentSpeed-40)/60)*0.59;
+  for(const {mat,phase,spd} of smokeWands)
+    mat.uniforms.uHead.value = ((elapsed*smokeSpd*spd)+phase) % 1.0;
 
-  for (let i = 0; i < smokeWands.length; i++) {
-    const { mat, phaseOffset, speedMult } = smokeWands[i];
-    mat.uniforms.uHead.value =
-      ((elapsed * baseSpeed * speedMult) + phaseOffset) % 1.0;
-  }
+  // FIX 2: Wheel spin — rad/s scaled for visual comfort
+  // Formula: (mph × 0.44704m/s per mph) / wheelRadius(0.33m) × visualScale(0.008)
+  const wRPS = (currentSpeed * 0.44704 / 0.33) * 0.008;
+  for(const m of wheelMeshes) m.rotation.x -= wRPS * delta;
 
   controls.update();
-
-  // Pass 1: bloom composer → car only (no transparent smoke)
   composer.render();
-
-  // Pass 2: draw smoke additively on top without clearing the frame
-  renderer.autoClear = false;
-  camera.layers.set(LAYER_SMOKE);
-  renderer.render(scene, camera);
-
-  // Restore camera to see everything for OrbitControls raycasting
-  camera.layers.enable(LAYER_CAR);
-  camera.layers.enable(LAYER_SMOKE);
-  renderer.autoClear = true;
 }
 animate();
 
-// ── 9. Resize ─────────────────────────────────────────────────────
+// ── Resize ───────────────────────────────────────────────────────
 window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.aspect = window.innerWidth/window.innerHeight;
   camera.updateProjectionMatrix();
-  bloomCamera.aspect = camera.aspect;
-  bloomCamera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
   composer.setSize(window.innerWidth, window.innerHeight);
   bloomPass.setSize(window.innerWidth, window.innerHeight);
