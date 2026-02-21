@@ -537,24 +537,24 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass }      from 'three/addons/postprocessing/OutputPass.js';
 
 // Half-res render target → big GPU saving, barely visible quality loss
-const isMobile   = window.innerWidth < 768;
-const rtScale    = isMobile ? 0.5 : 0.75;
-const rtW        = Math.floor(window.innerWidth  * rtScale);
-const rtH        = Math.floor(window.innerHeight * rtScale);
+
+
+
+
 
 const composer = new EffectComposer(renderer);
-composer.setPixelRatio(rtScale);
+
 composer.addPass(new RenderPass(scene, camera));
 
 const bloomPass = new UnrealBloomPass(
-  new THREE.Vector2(rtW, rtH),
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
   0.55,   // strength
   0.40,   // radius
   0.85    // threshold – black paint stays black
 );
-// multisampling = 0 → no MSAA on the bloom target (saves fill-rate)
-composer.renderTarget1.samples = 0;
-composer.renderTarget2.samples = 0;
+
+
+
 composer.addPass(bloomPass);
 composer.addPass(new OutputPass());
 
@@ -790,10 +790,7 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
   composer.setSize(window.innerWidth, window.innerHeight);
-  bloomPass.setSize(
-    Math.floor(window.innerWidth  * rtScale),
-    Math.floor(window.innerHeight * rtScale)
-  );
+  bloomPass.setSize(window.innerWidth, window.innerHeight);
 });
 </script>
 </body>
