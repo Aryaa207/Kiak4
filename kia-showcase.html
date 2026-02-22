@@ -352,16 +352,16 @@ function loadCar() {
 // ─────────────────────────────────────────────────────────────────
 // SMOKE WAND SYSTEM  v9  ─ Wispy Vapour Edition
 //
-// 35 ultra-thin wands in aerodynamic clusters.
-// Shader: hash-based gradient noise stretched by speed → motion blur.
-// Radial feathering: no hard tube edge, pure soft falloff.
-// Surface guard: analytic carSurfaceY() with 0.02 clearance (stable,
-// no raycaster kinks). Only uHead + uSpeed updated per frame.
+// 35 wands in aerodynamic clusters. Shader uses 2-octave FBM noise
+// stretched by speed for a motion-blur smear. Radial smoothstep
+// feathering replaces the hard tube silhouette. Alpha formula keeps
+// base visibility high so noise adds texture not extinction.
+// Only uHead + uSpeed updated per frame — zero geometry cost.
 // ─────────────────────────────────────────────────────────────────
 
 const smokeVert = `
   varying vec2  vUv;
-  varying float vLen;   // normalised along-tube position 0→1
+  varying float vLen;
   void main() {
     vUv  = uv;
     vLen = uv.x;
@@ -373,87 +373,64 @@ const smokeFrag = `
   uniform vec3  uColor;
   uniform float uOpacity;
   uniform float uHead;
-  uniform float uSpeed;   // 0..1  (mapped from mph)
+  uniform float uSpeed;
 
   varying vec2  vUv;
   varying float vLen;
 
-  // ── Minimal 2-D value noise (no texture sampler needed) ──────────
-  // Based on a hash of the UV coordinate — runs entirely on GPU.
   float hash(vec2 p) {
     p = fract(p * vec2(127.1, 311.7));
     p += dot(p, p + 19.19);
     return fract(p.x * p.y);
   }
-
-  float noise(vec2 p) {
+  float vnoise(vec2 p) {
     vec2 i = floor(p);
     vec2 f = fract(p);
-    vec2 u = f * f * (3.0 - 2.0 * f);   // smoothstep
+    vec2 u = f * f * (3.0 - 2.0 * f);
     return mix(
-      mix(hash(i),           hash(i + vec2(1,0)), u.x),
-      mix(hash(i + vec2(0,1)), hash(i + vec2(1,1)), u.x),
+      mix(hash(i),              hash(i + vec2(1.0,0.0)), u.x),
+      mix(hash(i + vec2(0.0,1.0)), hash(i + vec2(1.0,1.0)), u.x),
       u.y
     );
   }
-
-  // Two octaves of noise for wispy detail
   float fbm(vec2 p) {
-    float v = 0.0;
-    v += 0.60 * noise(p);
-    v += 0.30 * noise(p * 2.1 + vec2(5.2, 1.3));
-    v += 0.10 * noise(p * 4.5 + vec2(2.4, 8.7));
-    return v;
+    return vnoise(p) * 0.65 + vnoise(p * 2.2 + vec2(5.2,1.3)) * 0.35;
   }
 
   void main() {
-    // ── Comet window: which part of the tube is currently lit ─────
+    // Comet window
     float behind = uHead - vLen;
     if (behind < 0.0) behind += 1.0;
-
-    const float TAIL = 0.55;
+    const float TAIL = 0.60;
     if (behind > TAIL) discard;
 
-    // Along-tube fade: sharp nose → long wispy tail
-    float along = pow(clamp(1.0 - behind / TAIL, 0.0, 1.0), 1.4);
+    float along = pow(clamp(1.0 - behind / TAIL, 0.0, 1.0), 1.3);
 
-    // ── Noise UV: stretch horizontally by speed for motion-blur ───
-    // Higher speed → more horizontal stretch → elongated streaks
-    float stretch = 6.0 + uSpeed * 18.0;   // 6× at rest, 24× at 100 mph
-    vec2  noiseUV = vec2(
-      vLen  * stretch - uHead * stretch,    // travels with the comet
-      vUv.y * 1.8                           // slight vertical variation
-    );
+    // Speed-stretched noise for motion-blur streaks
+    float stretch = 5.0 + uSpeed * 14.0;
+    vec2 nuv = vec2(vLen * stretch - uHead * stretch, vUv.y * 2.0);
+    float smoke = fbm(nuv);
 
-    float smoke = fbm(noiseUV);
+    // Soft radial feathering
+    float radial = smoothstep(0.0, 0.42, vUv.y) * smoothstep(1.0, 0.58, vUv.y);
 
-    // ── Radial feathering: NO hard tube edge ──────────────────────
-    // smoothstep both sides of the 0-1 radial UV for a cotton-soft edge
-    float radial = smoothstep(0.0, 0.38, vUv.y) * smoothstep(1.0, 0.62, vUv.y);
+    // Taper: thin entry, peak over car body, wispy tail
+    float taper = smoothstep(0.0, 0.18, vLen) * smoothstep(1.0, 0.50, vLen);
 
-    // ── Taper: thin at entry, thicker over car, wisp at tail ──────
-    // vLen 0 = upstream end, 1 = downstream end
-    // Peak thickness around 35-55% along the tube (over the car body)
-    float taper = smoothstep(0.0, 0.20, vLen)    // thin approach
-                * smoothstep(1.0, 0.55, vLen);    // wispy tail
+    // Grain
+    float grain = hash(vUv * 87.3 + uHead * 11.7) * 0.15;
 
-    // ── Grain: tiny high-frequency grit on top of the smooth smoke ─
-    float grain = hash(vUv * 94.7 + uHead * 13.3) * 0.18;
-
-    float alpha = (smoke * 0.82 + grain) * radial * taper * along * uOpacity;
+    // Alpha: base visibility from radial*taper*along, noise adds texture
+    float alpha = radial * taper * along * (0.55 + smoke * 0.45 + grain) * uOpacity;
     alpha = clamp(alpha, 0.0, 1.0);
-    if (alpha < 0.004) discard;
+    if (alpha < 0.003) discard;
 
-    // Colour: slight warm-white tint in dense noise regions
-    vec3 col = mix(uColor, vec3(0.88, 0.97, 1.00), smoke * 0.22);
-
+    vec3 col = mix(uColor, vec3(0.90, 0.98, 1.00), smoke * 0.20);
     gl_FragColor = vec4(col * alpha, alpha);
   }
 `;
 
-// ── Analytic car silhouette (surface guard) ───────────────────────
-// CLEARANCE = 0.02  (2 cm) — the "raycaster safety" without the kinks.
-// All values in world space (car sits at position.y = -0.5).
+// Analytic surface guard — 2 cm clearance, no raycaster kinks
 const CAR_Y_OFFSET = -0.5;
 const CLEARANCE    =  0.02;
 
@@ -469,28 +446,22 @@ function carSurfaceY(pz) {
   return CAR_Y_OFFSET + localY + CLEARANCE;
 }
 
-// ── Path builder ──────────────────────────────────────────────────
 function buildPath(seedX, seedY) {
-  const N   = 44;
+  const N = 44;
   const pts = [];
   for (let i = 0; i < N; i++) {
-    const t   = i / (N - 1);
-    const pz  = 8.2 - t * 16.0;   // +8.2 upstream → -7.8 wake
-
+    const t  = i / (N - 1);
+    const pz = 8.2 - t * 16.0;
     const surfY = carSurfaceY(pz);
     const onCar = surfY > -900 && Math.abs(seedX) < 1.15;
-
     const inRamp  = pz > 1.6 && pz < 3.5 && Math.abs(seedX) < 0.82;
     const rampAdd = inRamp ? 0.14 * Math.sin((pz - 1.6) / 1.9 * Math.PI) : 0;
-
     let y = seedY;
     if (onCar) y = Math.max(y, surfY + rampAdd);
-
     if (pz < -3.7) {
       const w = Math.min((-3.7 - pz) / 3.2, 1.0);
       y += (seedY - y) * w * 0.5;
     }
-
     let x = seedX;
     if (Math.abs(seedX) > 0.55 && pz > -3.6 && pz < 3.6) {
       const arch = 0.06 * Math.max(0, Math.sin((3.6 - Math.abs(pz)) / 3.6 * Math.PI));
@@ -501,92 +472,66 @@ function buildPath(seedX, seedY) {
   return pts;
 }
 
-// ── Wand cluster definitions ──────────────────────────────────────
-// 35 ultra-thin wands grouped in aerodynamic clusters.
-// r  = tube radius (0.003–0.010 — very fine, like actual vapour)
-// op = opacity    (0.10–0.28 — low, layered for density)
-// spd = per-wand comet speed multiplier for organic variation
-// dy  = tiny vertical jitter within a cluster
-//
-// Clusters:
-//   A — centre spine (tight pack of 5 over the roof centreline)
-//   B — inner pair   (3 wands each side, A-pillar region)
-//   C — shoulder     (3 wands each side, door-mirror line)
-//   D — fender       (2 wands each side)
-//   E — outer        (2 wands each side, freely splaying)
-//   F — high stream  (3 wands above the roofline)
-//   G — underbody    (2 wands each side, sill channel)
-
+// 35 wands — radii 0.012–0.036 (visible), opacities 0.25–0.58
 const WAND_DEFS = [
-  // ── Cluster A: Centre spine ──────────────────────────────────
-  { x:  0.000, y: 0.180, r: 0.0090, op: 0.26, spd: 0.88 },
-  { x:  0.000, y: 0.196, r: 0.0060, op: 0.18, spd: 1.04 },
-  { x:  0.000, y: 0.210, r: 0.0045, op: 0.13, spd: 0.76 },
-  { x:  0.012, y: 0.188, r: 0.0040, op: 0.12, spd: 1.12 },
-  { x: -0.012, y: 0.188, r: 0.0040, op: 0.12, spd: 0.94 },
-
-  // ── Cluster B: Inner / A-pillar ──────────────────────────────
-  { x: -0.280, y: 0.200, r: 0.0080, op: 0.24, spd: 0.96 },
-  { x: -0.295, y: 0.214, r: 0.0055, op: 0.16, spd: 1.08 },
-  { x: -0.265, y: 0.208, r: 0.0042, op: 0.11, spd: 0.82 },
-  { x:  0.280, y: 0.200, r: 0.0080, op: 0.24, spd: 1.06 },
-  { x:  0.295, y: 0.214, r: 0.0055, op: 0.16, spd: 0.86 },
-  { x:  0.265, y: 0.208, r: 0.0042, op: 0.11, spd: 1.14 },
-
-  // ── Cluster C: Shoulder / door-mirror ────────────────────────
-  { x: -0.570, y: 0.218, r: 0.0072, op: 0.22, spd: 1.00 },
-  { x: -0.588, y: 0.230, r: 0.0048, op: 0.15, spd: 0.80 },
-  { x: -0.552, y: 0.224, r: 0.0038, op: 0.10, spd: 1.16 },
-  { x:  0.570, y: 0.218, r: 0.0072, op: 0.22, spd: 0.90 },
-  { x:  0.588, y: 0.230, r: 0.0048, op: 0.15, spd: 1.10 },
-  { x:  0.552, y: 0.224, r: 0.0038, op: 0.10, spd: 0.74 },
-
-  // ── Cluster D: Fender crest ───────────────────────────────────
-  { x: -0.840, y: 0.182, r: 0.0058, op: 0.18, spd: 0.84 },
-  { x: -0.862, y: 0.194, r: 0.0038, op: 0.12, spd: 1.06 },
-  { x:  0.840, y: 0.182, r: 0.0058, op: 0.18, spd: 1.18 },
-  { x:  0.862, y: 0.194, r: 0.0038, op: 0.12, spd: 0.78 },
-
-  // ── Cluster E: Outer / free-splay ────────────────────────────
-  { x: -1.060, y: 0.222, r: 0.0045, op: 0.14, spd: 1.02 },
-  { x: -1.080, y: 0.236, r: 0.0030, op: 0.10, spd: 0.88 },
-  { x:  1.060, y: 0.222, r: 0.0045, op: 0.14, spd: 0.76 },
-  { x:  1.080, y: 0.236, r: 0.0030, op: 0.10, spd: 1.10 },
-
-  // ── Cluster F: High free-stream ───────────────────────────────
-  { x:  0.000, y: 0.780, r: 0.0065, op: 0.20, spd: 0.92 },
-  { x: -0.180, y: 0.754, r: 0.0042, op: 0.14, spd: 1.08 },
-  { x:  0.180, y: 0.754, r: 0.0042, op: 0.14, spd: 0.82 },
-
-  // ── Cluster G: Underbody sill ─────────────────────────────────
-  { x: -0.620, y: -0.20, r: 0.0048, op: 0.16, spd: 1.04 },
-  { x: -0.640, y: -0.21, r: 0.0030, op: 0.10, spd: 0.86 },
-  { x:  0.620, y: -0.20, r: 0.0048, op: 0.16, spd: 0.80 },
-  { x:  0.640, y: -0.21, r: 0.0030, op: 0.10, spd: 1.12 },
-
-  // ── Two accent wands: slightly above free-stream, very faint ──
-  { x: -0.380, y: 0.460, r: 0.0032, op: 0.10, spd: 0.98 },
-  { x:  0.380, y: 0.460, r: 0.0032, op: 0.10, spd: 1.02 },
+  // Cluster A: Centre spine
+  { x:  0.000, y: 0.185, r: 0.036, op: 0.58, spd: 0.88 },
+  { x:  0.000, y: 0.200, r: 0.024, op: 0.42, spd: 1.04 },
+  { x:  0.000, y: 0.214, r: 0.018, op: 0.32, spd: 0.76 },
+  { x:  0.014, y: 0.192, r: 0.016, op: 0.28, spd: 1.12 },
+  { x: -0.014, y: 0.192, r: 0.016, op: 0.28, spd: 0.94 },
+  // Cluster B: Inner / A-pillar
+  { x: -0.285, y: 0.202, r: 0.030, op: 0.50, spd: 0.96 },
+  { x: -0.300, y: 0.216, r: 0.020, op: 0.36, spd: 1.08 },
+  { x: -0.270, y: 0.210, r: 0.016, op: 0.28, spd: 0.82 },
+  { x:  0.285, y: 0.202, r: 0.030, op: 0.50, spd: 1.06 },
+  { x:  0.300, y: 0.216, r: 0.020, op: 0.36, spd: 0.86 },
+  { x:  0.270, y: 0.210, r: 0.016, op: 0.28, spd: 1.14 },
+  // Cluster C: Shoulder / door-mirror
+  { x: -0.575, y: 0.220, r: 0.026, op: 0.44, spd: 1.00 },
+  { x: -0.592, y: 0.232, r: 0.018, op: 0.32, spd: 0.80 },
+  { x: -0.558, y: 0.226, r: 0.014, op: 0.25, spd: 1.16 },
+  { x:  0.575, y: 0.220, r: 0.026, op: 0.44, spd: 0.90 },
+  { x:  0.592, y: 0.232, r: 0.018, op: 0.32, spd: 1.10 },
+  { x:  0.558, y: 0.226, r: 0.014, op: 0.25, spd: 0.74 },
+  // Cluster D: Fender crest
+  { x: -0.845, y: 0.185, r: 0.022, op: 0.38, spd: 0.84 },
+  { x: -0.865, y: 0.196, r: 0.014, op: 0.28, spd: 1.06 },
+  { x:  0.845, y: 0.185, r: 0.022, op: 0.38, spd: 1.18 },
+  { x:  0.865, y: 0.196, r: 0.014, op: 0.28, spd: 0.78 },
+  // Cluster E: Outer / free-splay
+  { x: -1.062, y: 0.225, r: 0.016, op: 0.30, spd: 1.02 },
+  { x: -1.082, y: 0.238, r: 0.012, op: 0.22, spd: 0.88 },
+  { x:  1.062, y: 0.225, r: 0.016, op: 0.30, spd: 0.76 },
+  { x:  1.082, y: 0.238, r: 0.012, op: 0.22, spd: 1.10 },
+  // Cluster F: High free-stream
+  { x:  0.000, y: 0.780, r: 0.022, op: 0.40, spd: 0.92 },
+  { x: -0.180, y: 0.755, r: 0.015, op: 0.30, spd: 1.08 },
+  { x:  0.180, y: 0.755, r: 0.015, op: 0.30, spd: 0.82 },
+  // Cluster G: Underbody sill
+  { x: -0.625, y: -0.20, r: 0.018, op: 0.34, spd: 1.04 },
+  { x: -0.645, y: -0.21, r: 0.012, op: 0.24, spd: 0.86 },
+  { x:  0.625, y: -0.20, r: 0.018, op: 0.34, spd: 0.80 },
+  { x:  0.645, y: -0.21, r: 0.012, op: 0.24, spd: 1.12 },
+  // Accent mid free-stream
+  { x: -0.385, y: 0.465, r: 0.014, op: 0.28, spd: 0.98 },
+  { x:  0.385, y: 0.465, r: 0.014, op: 0.28, spd: 1.02 },
 ];
 
-// ── Wand mesh array (filled by buildSmokeWands after GLB loads) ───
 const smokeWands = [];
 
 function buildSmokeWands() {
   WAND_DEFS.forEach((d, i) => {
     const curve = new THREE.CatmullRomCurve3(buildPath(d.x, d.y));
-    // 100 tubular segments for ultra-smooth wispy curves
-    // 6 radial segments — enough for the feathered shader, low poly cost
-    const geo = new THREE.TubeGeometry(curve, 100, d.r, 6, false);
+    const geo   = new THREE.TubeGeometry(curve, 100, d.r, 6, false);
     geo.computeBoundingSphere();
-
     const mat = new THREE.ShaderMaterial({
       vertexShader:   smokeVert,
       fragmentShader: smokeFrag,
       uniforms: {
-        uColor:   { value: new THREE.Color(0x5cd8f5) },
+        uColor:   { value: new THREE.Color(0x50d8f8) },
         uOpacity: { value: d.op },
-        uHead:    { value: i / WAND_DEFS.length },   // stagger initial phases
+        uHead:    { value: i / WAND_DEFS.length },
         uSpeed:   { value: 0.0 },
       },
       transparent: true,
@@ -594,15 +539,13 @@ function buildSmokeWands() {
       blending:    THREE.AdditiveBlending,
       side:        THREE.DoubleSide,
     });
-
     const mesh = new THREE.Mesh(geo, mat);
     mesh.renderOrder   = 2;
     mesh.frustumCulled = true;
     scene.add(mesh);
-
     smokeWands.push({ mat, phase: i / WAND_DEFS.length, spd: d.spd });
   });
-  console.log(`[K4] ✓ ${smokeWands.length} wispy vapour wands built`);
+  console.log(`[K4] v9: ${smokeWands.length} wispy vapour wands built`);
 }
 
 // ─────────────────────────────────────────────────────────────────
