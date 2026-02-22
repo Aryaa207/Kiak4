@@ -409,60 +409,65 @@ const smokeFrag = `
 `;
 
 // ── Mathematical car silhouette ───────────────────────────────────
-// Analytically smooth — no raycaster kinks.
-// Car sits at scene Y = -0.5, so all silhouette Y values are
-// relative to that offset and returned in world space.
-const CAR_Y_OFFSET = -0.5;   // matches gltf.scene.position.y
-const CLEARANCE    =  0.03;  // 3 cm above paint
+// Measured world-space Y (car at position.y = -0.5):
+//   Roof crown:      ≈ -0.04   (model local ~+0.46)
+//   Windshield base: ≈ -0.01
+//   Hood peak:       ≈ -0.25   (model local ~+0.25)
+//   Front bumper:    ≈ -0.62   (model local ~-0.12)
+//   Door sill / side:≈ -0.55   (mid-body at z=0)
+//   Underbody:       ≈ -0.55 to -0.65
+//
+// CLEARANCE = 0.15 so the tube (max r=0.052) clears even the
+// sharpest roof curve without any fragment poking through.
+const CAR_Y_OFFSET = -0.5;
+const CLEARANCE    =  0.15;
 
 function carSurfaceY(pz) {
-  // Returns world-space Y of car top at depth pz.
-  // Outside the car envelope returns -999 (no surface).
-  if (pz > 3.4 || pz < -3.7) return -999;
-  let localY;
-  if      (pz >  2.6) localY = -0.10 + (3.4 - pz) / 0.8  * 0.30;  // front bumper rise
-  else if (pz >  0.6) localY =  0.20 + (2.6 - pz) / 2.0  * 0.62;  // hood slope
-  else if (pz > -0.4) localY =  0.82 + Math.sin((pz + 0.4) / 1.0 * Math.PI) * 0.04; // roof
-  else if (pz > -3.2) localY =  0.82 - (-0.4 - pz) / 2.8  * 0.84; // fastback
-  else                localY =  0.00;
+  // Returns world-space Y of the car's top surface at depth pz.
+  // -999 = no car here (open air).
+  if (pz >  3.6 || pz < -3.9) return -999;
+
+  let localY;  // model-local Y before the -0.5 scene offset
+  if      (pz >  2.9) localY = -0.12 + (3.6 - pz) / 0.7 * 0.22;  // front bumper ramp
+  else if (pz >  0.8) localY =  0.10 + (2.9 - pz) / 2.1 * 0.34;  // hood slope up to windshield
+  else if (pz > -0.3) localY =  0.44 + Math.sin((pz + 0.3) / 1.1 * Math.PI) * 0.04; // roof crown
+  else if (pz > -0.9) localY =  0.44;                              // roof flat section
+  else if (pz > -3.5) localY =  0.44 - (-0.9 - pz) / 2.6 * 0.86; // fastback slope
+  else                localY = -0.42 + (-3.5 - pz) / 0.4 * (-0.05); // trunk/bumper
+
   return CAR_Y_OFFSET + localY + CLEARANCE;
 }
 
 // ── Path builder ──────────────────────────────────────────────────
-// Produces a perfectly smooth CatmullRom path with 32 CVs.
-// Each point is guaranteed >= carSurfaceY so nothing clips.
-// Lateral splay bows outer wands around wheel arches.
-// Wake recovery brings the line back to freestream height.
 function buildPath(seedX, seedY) {
-  const N      = 32;
-  const baseY  = seedY;     // freestream approach height
-  const pts    = [];
+  const N   = 40;
+  const pts = [];
 
   for (let i = 0; i < N; i++) {
     const t  = i / (N - 1);
-    const pz = 8.0 - t * 15.0;   // +8 (far upstream) → -7 (wake)
+    const pz = 8.0 - t * 15.5;   // +8.0 upstream → -7.5 wake
 
-    // Surface constraint
     const surfY = carSurfaceY(pz);
-    const onCar = surfY > -900 && Math.abs(seedX) < 1.0;
+    // Full body width — constraint applies inside ±1.15 of centre
+    const onCar = surfY > -900 && Math.abs(seedX) < 1.15;
 
-    // Vent / windshield ramp: extra lift in the grille-to-hood transition
-    const inRamp  = pz > 1.5 && pz < 3.5 && Math.abs(seedX) < 0.72;
-    const rampAdd = inRamp ? 0.20 * Math.sin((pz - 1.5) / 2.0 * Math.PI) : 0.0;
+    // Extra arc over grille/bumper transition
+    const inRamp  = pz > 1.6 && pz < 3.5 && Math.abs(seedX) < 0.80;
+    const rampAdd = inRamp ? 0.16 * Math.sin((pz - 1.6) / 1.9 * Math.PI) : 0;
 
-    let y = baseY;
-    if (onCar && y < surfY + rampAdd) y = surfY + rampAdd;
+    let y = seedY;
+    if (onCar) y = Math.max(y, surfY + rampAdd);
 
-    // Wake: smooth exponential recovery back to freestream
-    if (pz < -3.2) {
-      const w = Math.min((-3.2 - pz) / 3.5, 1.0);
-      y = y + (baseY - y) * w * 0.5;
+    // Wake: smooth blend back to freestream after the car ends
+    if (pz < -3.7) {
+      const w = Math.min((-3.7 - pz) / 3.0, 1.0);
+      y += (seedY - y) * w * 0.55;
     }
 
-    // Lateral splay — bow outer wands around wheel arches
+    // Lateral splay over wheel arches
     let x = seedX;
-    if (Math.abs(seedX) > 0.52 && pz > -3.5 && pz < 3.5) {
-      const arch = 0.08 * Math.max(0, Math.sin((3.5 - Math.abs(pz)) / 3.5 * Math.PI));
+    if (Math.abs(seedX) > 0.55 && pz > -3.6 && pz < 3.6) {
+      const arch = 0.07 * Math.max(0, Math.sin((3.6 - Math.abs(pz)) / 3.6 * Math.PI));
       x = seedX > 0 ? seedX + arch : seedX - arch;
     }
 
@@ -472,38 +477,40 @@ function buildPath(seedX, seedY) {
 }
 
 // ── Wand definitions ──────────────────────────────────────────────
-// One ribbon per lateral lane. Heights chosen so each wand sits in
-// a clearly distinct airstream layer. Outermost go past ±0.88 to
-// splay naturally over the fender flares.
-// r = tube radius, op = opacity, spd = individual comet speed multiplier
+// Seed Y values calibrated to measured world-space positions.
+// Roof world Y ≈ -0.04, so freestream for over-body wands starts
+// at Y = +0.18 (0.22 above roof crown) — well clear with CLEARANCE.
+// Underbody floor ≈ -0.65, so underbody wands at Y = -0.38 are
+// 0.27 above the floor (safely in the sill airstream zone).
 const WAND_DEFS = [
-  // Centre spine — thickest, most prominent
-  { x:  0.00, y:  0.38, r: 0.055, op: 0.78, spd: 0.90 },
+  // Centre spine — thickest ribbon, just above roofline
+  { x:  0.00, y:  0.18, r: 0.052, op: 0.78, spd: 0.90 },
 
-  // ±0.30 — inner / A-pillar
-  { x: -0.30, y:  0.40, r: 0.044, op: 0.66, spd: 1.06 },
-  { x:  0.30, y:  0.40, r: 0.044, op: 0.66, spd: 0.84 },
+  // ±0.30 — inner / A-pillar stream
+  { x: -0.30, y:  0.20, r: 0.040, op: 0.68, spd: 1.06 },
+  { x:  0.30, y:  0.20, r: 0.040, op: 0.68, spd: 0.84 },
 
-  // ±0.58 — door / shoulder line
-  { x: -0.58, y:  0.38, r: 0.038, op: 0.58, spd: 0.96 },
-  { x:  0.58, y:  0.38, r: 0.038, op: 0.58, spd: 1.10 },
+  // ±0.58 — shoulder / door-mirror line
+  { x: -0.58, y:  0.22, r: 0.034, op: 0.58, spd: 0.96 },
+  { x:  0.58, y:  0.22, r: 0.034, op: 0.58, spd: 1.10 },
 
-  // ±0.82 — fender crest
-  { x: -0.82, y:  0.32, r: 0.030, op: 0.46, spd: 0.78 },
-  { x:  0.82, y:  0.32, r: 0.030, op: 0.46, spd: 1.16 },
+  // ±0.85 — fender crest (outside body, lower approach)
+  { x: -0.85, y:  0.18, r: 0.026, op: 0.46, spd: 0.78 },
+  { x:  0.85, y:  0.18, r: 0.026, op: 0.46, spd: 1.16 },
 
-  // ±1.05 — outermost, past the body (splay freely)
-  { x: -1.05, y:  0.26, r: 0.022, op: 0.36, spd: 1.04 },
-  { x:  1.05, y:  0.26, r: 0.022, op: 0.36, spd: 0.72 },
+  // ±1.08 — fully outside body, free-splay (raised above side-mirror height)
+  { x: -1.08, y:  0.22, r: 0.018, op: 0.36, spd: 1.04 },
+  { x:  1.08, y:  0.22, r: 0.018, op: 0.36, spd: 0.72 },
 
-  // High free-stream — above roofline, reads at distance
-  { x:  0.00, y:  1.20, r: 0.026, op: 0.38, spd: 0.94 },
-  { x: -0.22, y:  1.16, r: 0.018, op: 0.30, spd: 1.08 },
-  { x:  0.22, y:  1.16, r: 0.018, op: 0.30, spd: 0.80 },
+  // High free-stream — well above roof, reads at any camera angle
+  { x:  0.00, y:  0.80, r: 0.022, op: 0.36, spd: 0.94 },
+  { x: -0.20, y:  0.76, r: 0.014, op: 0.26, spd: 1.08 },
+  { x:  0.20, y:  0.76, r: 0.014, op: 0.26, spd: 0.80 },
 
-  // Underbody sill
-  { x: -0.48, y: -0.28, r: 0.020, op: 0.36, spd: 1.02 },
-  { x:  0.48, y: -0.28, r: 0.020, op: 0.36, spd: 0.76 },
+  // Underbody sill — these are OUTSIDE the car body laterally so no
+  // surface conflict; they ride in the low-pressure sill channel
+  { x: -0.62, y: -0.20, r: 0.016, op: 0.32, spd: 1.02 },
+  { x:  0.62, y: -0.20, r: 0.016, op: 0.32, spd: 0.76 },
 ];
 
 // ── smokeWands (filled after GLB loads) ───────────────────────────
