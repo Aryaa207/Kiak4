@@ -7,10 +7,10 @@
 
   <!--
     DEPLOYMENT CHECKLIST:
-    1. Upload THIS FILE to GitHub repo as kia-showcase.html
+    1. Upload THIS FILE to GitHub repo as kia-showcasev2.html
     2. Upload kiak4.glb to the SAME repo root
     3. The GLB URL below is absolute — works from any domain including Squarespace
-    4. Squarespace iframe: src="https://aryaa207.github.io/Kiak4/kia-showcase.html"
+    4. Squarespace iframe: src="https://aryaa207.github.io/Kiak4/kia-showcasev2.html"
   -->
 
   <script type="importmap">
@@ -29,12 +29,9 @@
     *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
     :root { --accent:#60b8ff; --accent2:#38d9ff; --bg:#06060f; --muted:rgba(255,255,255,0.35); }
 
-    /* margin:0 padding:0 on html prevents Squarespace wrapper from adding
-       any gap around the canvas — the dark bg fills 100% of the iframe */
-    html { margin:0; padding:0; width:100%; height:100%; background:#06060f; }
-    body { margin:0; padding:0; width:100%; height:100%; background:#06060f; overflow:hidden; font-family:'Rajdhani',sans-serif; }
-    #canvas-container { position:fixed; inset:0; margin:0; padding:0; }
-    canvas { display:block; width:100%!important; height:100%!important; margin:0; padding:0; }
+    html, body { width:100%; height:100%; background:var(--bg); overflow:hidden; font-family:'Rajdhani',sans-serif; }
+    #canvas-container { position:fixed; inset:0; }
+    canvas { display:block; width:100%!important; height:100%!important; }
 
     /* ── Loader ── */
     #loader {
@@ -328,13 +325,11 @@ function loadCar() {
       gltf.scene.position.set(0, -0.5, 0);
       gltf.scene.scale.set(1, 1, 1);
       scene.add(gltf.scene);
-      // ↓ MUST be called after scene.add so raycasts hit the car geometry
-      buildSmokeWands(gltf.scene);
       hideLoader();
     },
     (xhr) => {
-      if (xhr.lengthComputable && xhr.total > 0) {
-        const p = Math.min(100, Math.round(xhr.loaded / xhr.total * 100));
+      if (xhr.lengthComputable) {
+        const p = Math.round(xhr.loaded / xhr.total * 100);
         loaderBar.style.width = p + '%';
         loaderPct.textContent = p + '%';
         setStatus(`Downloading model… ${p}%`);
@@ -350,203 +345,162 @@ function loadCar() {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// SMOKE WAND SYSTEM  v9  ─ Wispy Vapour Edition
-//
-// 35 wands in aerodynamic clusters. Shader uses 2-octave FBM noise
-// stretched by speed for a motion-blur smear. Radial smoothstep
-// feathering replaces the hard tube silhouette. Alpha formula keeps
-// base visibility high so noise adds texture not extinction.
-// Only uHead + uSpeed updated per frame — zero geometry cost.
+// SMOKE WAND SYSTEM
 // ─────────────────────────────────────────────────────────────────
 
+// ── GLSL shader ──────────────────────────────────────────────────
+// AdditiveBlending: adds light only, physically cannot write black.
+// All values clamped [0,1]: NaN / Inf impossible.
 const smokeVert = `
-  varying vec2  vUv;
-  varying float vLen;
+  varying vec2 vUv;
   void main() {
-    vUv  = uv;
-    vLen = uv.x;
+    vUv         = uv;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
-
 const smokeFrag = `
   uniform vec3  uColor;
   uniform float uOpacity;
   uniform float uHead;
-  uniform float uSpeed;
-
   varying vec2  vUv;
-  varying float vLen;
-
-  float hash(vec2 p) {
-    p = fract(p * vec2(127.1, 311.7));
-    p += dot(p, p + 19.19);
-    return fract(p.x * p.y);
-  }
-  float vnoise(vec2 p) {
-    vec2 i = floor(p);
-    vec2 f = fract(p);
-    vec2 u = f * f * (3.0 - 2.0 * f);
-    return mix(
-      mix(hash(i),              hash(i + vec2(1.0,0.0)), u.x),
-      mix(hash(i + vec2(0.0,1.0)), hash(i + vec2(1.0,1.0)), u.x),
-      u.y
-    );
-  }
-  float fbm(vec2 p) {
-    return vnoise(p) * 0.65 + vnoise(p * 2.2 + vec2(5.2,1.3)) * 0.35;
-  }
 
   void main() {
-    // Comet window
-    float behind = uHead - vLen;
+    float tailLen = 0.72;
+    float behind  = uHead - vUv.x;
     if (behind < 0.0) behind += 1.0;
-    const float TAIL = 0.60;
-    if (behind > TAIL) discard;
+    if (behind > tailLen) discard;
 
-    float along = pow(clamp(1.0 - behind / TAIL, 0.0, 1.0), 1.3);
+    // Along-tube: full at head, zero at tail
+    float along = pow(clamp(1.0 - behind / tailLen, 0.0, 1.0), 1.3);
+    // Tip: extra bright leading edge (so bloom has something to catch later)
+    float tip   = pow(clamp(1.0 - behind / 0.05, 0.0, 1.0), 3.0);
+    // Radial: full at tube core, zero at seam edge
+    float radial = sin(clamp(vUv.y, 0.0, 1.0) * 3.14159265);
+    float core   = pow(clamp(radial, 0.0, 1.0), 1.6);
 
-    // Speed-stretched noise for motion-blur streaks
-    float stretch = 5.0 + uSpeed * 14.0;
-    vec2 nuv = vec2(vLen * stretch - uHead * stretch, vUv.y * 2.0);
-    float smoke = fbm(nuv);
+    float alpha = clamp((along + tip) * core * uOpacity, 0.0, 1.0);
+    if (alpha < 0.006) discard;
 
-    // Soft radial feathering
-    float radial = smoothstep(0.0, 0.42, vUv.y) * smoothstep(1.0, 0.58, vUv.y);
-
-    // Taper: thin entry, peak over car body, wispy tail
-    float taper = smoothstep(0.0, 0.18, vLen) * smoothstep(1.0, 0.50, vLen);
-
-    // Grain
-    float grain = hash(vUv * 87.3 + uHead * 11.7) * 0.15;
-
-    // Alpha: base visibility from radial*taper*along, noise adds texture
-    float alpha = radial * taper * along * (0.55 + smoke * 0.45 + grain) * uOpacity;
-    alpha = clamp(alpha, 0.0, 1.0);
-    if (alpha < 0.003) discard;
-
-    vec3 col = mix(uColor, vec3(0.90, 0.98, 1.00), smoke * 0.20);
+    vec3 col = clamp(mix(uColor, vec3(0.92, 0.98, 1.00), tip * core * 0.7), 0.0, 1.0);
     gl_FragColor = vec4(col * alpha, alpha);
   }
 `;
 
-// Analytic surface guard — 2 cm clearance, no raycaster kinks
-const CAR_Y_OFFSET = -0.5;
-const CLEARANCE    =  0.02;
-
-function carSurfaceY(pz) {
-  if (pz >  3.6 || pz < -3.9) return -999;
-  let localY;
-  if      (pz >  2.9) localY = -0.12 + (3.6 - pz) / 0.7 * 0.22;
-  else if (pz >  0.8) localY =  0.10 + (2.9 - pz) / 2.1 * 0.34;
-  else if (pz > -0.3) localY =  0.44 + Math.sin((pz + 0.3) / 1.1 * Math.PI) * 0.04;
-  else if (pz > -0.9) localY =  0.44;
-  else if (pz > -3.5) localY =  0.44 - (-0.9 - pz) / 2.6 * 0.86;
-  else                localY = -0.42;
-  return CAR_Y_OFFSET + localY + CLEARANCE;
+// ── Car body silhouette for path physics ─────────────────────────
+// Returns Y of car's top surface at a given Z depth.
+// Car: nose = +Z, trunk = −Z.
+const SURF_CLEAR = 0.025;  // gap above surface to prevent clipping
+function carTopY(pz) {
+  if (pz > 3.3 || pz < -3.6) return -99;
+  let y;
+  if      (pz >  2.5) y = -0.15 + (3.3 - pz) / 0.8  * 0.28;   // bumper
+  else if (pz >  0.5) y =  0.13 + (2.5 - pz) / 2.0  * 0.68;   // hood
+  else if (pz > -0.5) y =  0.81 + Math.sin((pz + 0.5) * Math.PI) * 0.05; // roof
+  else if (pz > -3.1) y =  0.81 - (-0.5 - pz) / 2.6  * 0.83;  // fastback
+  else                y = -0.02;
+  return y + SURF_CLEAR;
 }
 
-function buildPath(seedX, seedY) {
-  const N = 44;
-  const pts = [];
+// ── Path builder ─────────────────────────────────────────────────
+// seedY is raised globally (+0.22) so wands START above the front grille.
+// Extra vent-zone push (+0.25 max) arcs them cleanly over the grille aperture.
+function buildWandPath(seedX, seedY) {
+  const N     = 26;
+  const baseY = seedY + 0.22;   // global vent-clearance lift
+  const pts   = [];
+
   for (let i = 0; i < N; i++) {
-    const t  = i / (N - 1);
-    const pz = 8.2 - t * 16.0;
-    const surfY = carSurfaceY(pz);
-    const onCar = surfY > -900 && Math.abs(seedX) < 1.15;
-    const inRamp  = pz > 1.6 && pz < 3.5 && Math.abs(seedX) < 0.82;
-    const rampAdd = inRamp ? 0.14 * Math.sin((pz - 1.6) / 1.9 * Math.PI) : 0;
-    let y = seedY;
-    if (onCar) y = Math.max(y, surfY + rampAdd);
-    if (pz < -3.7) {
-      const w = Math.min((-3.7 - pz) / 3.2, 1.0);
-      y += (seedY - y) * w * 0.5;
-    }
-    let x = seedX;
-    if (Math.abs(seedX) > 0.55 && pz > -3.6 && pz < 3.6) {
-      const arch = 0.06 * Math.max(0, Math.sin((3.6 - Math.abs(pz)) / 3.6 * Math.PI));
+    const pz = 8.5 - (i / (N - 1)) * 14.5;   // +8.5 front → -6.0 wake
+    let x = seedX, y = baseY;
+
+    const top   = carTopY(pz);
+    const onCar = top > -90 && Math.abs(seedX) < 0.97;
+
+    // Vent avoidance zone (front grille area)
+    const inVent  = pz > 1.5 && pz < 3.6 && Math.abs(seedX) < 0.70;
+    const ventPush = inVent ? 0.25 * Math.sin((pz - 1.5) / 2.1 * Math.PI) : 0;
+
+    if (onCar && y < top + ventPush) y = top + ventPush;
+
+    // Wheel arch lateral splay
+    if (Math.abs(seedX) > 0.54 && pz > -3.3 && pz < 3.3) {
+      const arch = 0.10 * Math.max(0, Math.sin((3.3 - Math.abs(pz)) / 3.3 * Math.PI));
       x = seedX > 0 ? seedX + arch : seedX - arch;
     }
+
+    // Wake: recover back toward far-field height
+    if (pz < -3.4) {
+      const wt = Math.min((-3.4 - pz) / 2.8, 1.0);
+      y += (baseY - y) * wt * 0.45;
+    }
+
     pts.push(new THREE.Vector3(x, y, pz));
   }
   return pts;
 }
 
-// 35 wands — radii 0.012–0.036 (visible), opacities 0.25–0.58
+// ── Wand definitions ─────────────────────────────────────────────
+// r  = tube radius in world units (bigger = thicker, more visible)
+// op = opacity (0–1)
+// spd = individual speed multiplier for organic variation
 const WAND_DEFS = [
-  // Cluster A: Centre spine
-  { x:  0.000, y: 0.185, r: 0.036, op: 0.58, spd: 0.88 },
-  { x:  0.000, y: 0.200, r: 0.024, op: 0.42, spd: 1.04 },
-  { x:  0.000, y: 0.214, r: 0.018, op: 0.32, spd: 0.76 },
-  { x:  0.014, y: 0.192, r: 0.016, op: 0.28, spd: 1.12 },
-  { x: -0.014, y: 0.192, r: 0.016, op: 0.28, spd: 0.94 },
-  // Cluster B: Inner / A-pillar
-  { x: -0.285, y: 0.202, r: 0.030, op: 0.50, spd: 0.96 },
-  { x: -0.300, y: 0.216, r: 0.020, op: 0.36, spd: 1.08 },
-  { x: -0.270, y: 0.210, r: 0.016, op: 0.28, spd: 0.82 },
-  { x:  0.285, y: 0.202, r: 0.030, op: 0.50, spd: 1.06 },
-  { x:  0.300, y: 0.216, r: 0.020, op: 0.36, spd: 0.86 },
-  { x:  0.270, y: 0.210, r: 0.016, op: 0.28, spd: 1.14 },
-  // Cluster C: Shoulder / door-mirror
-  { x: -0.575, y: 0.220, r: 0.026, op: 0.44, spd: 1.00 },
-  { x: -0.592, y: 0.232, r: 0.018, op: 0.32, spd: 0.80 },
-  { x: -0.558, y: 0.226, r: 0.014, op: 0.25, spd: 1.16 },
-  { x:  0.575, y: 0.220, r: 0.026, op: 0.44, spd: 0.90 },
-  { x:  0.592, y: 0.232, r: 0.018, op: 0.32, spd: 1.10 },
-  { x:  0.558, y: 0.226, r: 0.014, op: 0.25, spd: 0.74 },
-  // Cluster D: Fender crest
-  { x: -0.845, y: 0.185, r: 0.022, op: 0.38, spd: 0.84 },
-  { x: -0.865, y: 0.196, r: 0.014, op: 0.28, spd: 1.06 },
-  { x:  0.845, y: 0.185, r: 0.022, op: 0.38, spd: 1.18 },
-  { x:  0.865, y: 0.196, r: 0.014, op: 0.28, spd: 0.78 },
-  // Cluster E: Outer / free-splay
-  { x: -1.062, y: 0.225, r: 0.016, op: 0.30, spd: 1.02 },
-  { x: -1.082, y: 0.238, r: 0.012, op: 0.22, spd: 0.88 },
-  { x:  1.062, y: 0.225, r: 0.016, op: 0.30, spd: 0.76 },
-  { x:  1.082, y: 0.238, r: 0.012, op: 0.22, spd: 1.10 },
-  // Cluster F: High free-stream
-  { x:  0.000, y: 0.780, r: 0.022, op: 0.40, spd: 0.92 },
-  { x: -0.180, y: 0.755, r: 0.015, op: 0.30, spd: 1.08 },
-  { x:  0.180, y: 0.755, r: 0.015, op: 0.30, spd: 0.82 },
-  // Cluster G: Underbody sill
-  { x: -0.625, y: -0.20, r: 0.018, op: 0.34, spd: 1.04 },
-  { x: -0.645, y: -0.21, r: 0.012, op: 0.24, spd: 0.86 },
-  { x:  0.625, y: -0.20, r: 0.018, op: 0.34, spd: 0.80 },
-  { x:  0.645, y: -0.21, r: 0.012, op: 0.24, spd: 1.12 },
-  // Accent mid free-stream
-  { x: -0.385, y: 0.465, r: 0.014, op: 0.28, spd: 0.98 },
-  { x:  0.385, y: 0.465, r: 0.014, op: 0.28, spd: 1.02 },
+  // Centre spine — most prominent single ribbon
+  { x:  0.00, y:  0.05, r: 0.060, op: 0.72, spd: 0.88 },
+  { x:  0.00, y:  0.32, r: 0.038, op: 0.58, spd: 0.74 },
+
+  // Inner pair — A-pillar width
+  { x: -0.30, y:  0.06, r: 0.048, op: 0.64, spd: 0.96 },
+  { x:  0.30, y:  0.06, r: 0.048, op: 0.64, spd: 0.83 },
+  { x: -0.30, y:  0.30, r: 0.032, op: 0.52, spd: 1.06 },
+  { x:  0.30, y:  0.30, r: 0.032, op: 0.52, spd: 0.71 },
+
+  // Mid pair — door mirror / shoulder line
+  { x: -0.64, y:  0.12, r: 0.040, op: 0.56, spd: 0.93 },
+  { x:  0.64, y:  0.12, r: 0.040, op: 0.56, spd: 1.09 },
+  { x: -0.64, y:  0.32, r: 0.026, op: 0.44, spd: 0.79 },
+  { x:  0.64, y:  0.32, r: 0.026, op: 0.44, spd: 0.86 },
+
+  // Outer pair — fender / wheel arch crest
+  { x: -0.90, y:  0.22, r: 0.030, op: 0.42, spd: 1.14 },
+  { x:  0.90, y:  0.22, r: 0.030, op: 0.42, spd: 0.67 },
+
+  // High free-stream — above roofline, reads clearly at distance
+  { x: -0.18, y:  1.18, r: 0.024, op: 0.36, spd: 0.99 },
+  { x:  0.18, y:  1.18, r: 0.024, op: 0.36, spd: 0.89 },
+
+  // Underbody / sill
+  { x: -0.50, y: -0.28, r: 0.022, op: 0.40, spd: 1.03 },
+  { x:  0.50, y: -0.28, r: 0.022, op: 0.40, spd: 0.76 },
 ];
 
-const smokeWands = [];
+// ── Build meshes ─────────────────────────────────────────────────
+const smokeWands = WAND_DEFS.map((d, i) => {
+  const curve = new THREE.CatmullRomCurve3(buildWandPath(d.x, d.y));
+  // 80 tubular segments for smooth curves, 8 radial for clean silhouette
+  const geo   = new THREE.TubeGeometry(curve, 80, d.r, 8, false);
+  geo.computeBoundingSphere();
 
-function buildSmokeWands() {
-  WAND_DEFS.forEach((d, i) => {
-    const curve = new THREE.CatmullRomCurve3(buildPath(d.x, d.y));
-    const geo   = new THREE.TubeGeometry(curve, 100, d.r, 6, false);
-    geo.computeBoundingSphere();
-    const mat = new THREE.ShaderMaterial({
-      vertexShader:   smokeVert,
-      fragmentShader: smokeFrag,
-      uniforms: {
-        uColor:   { value: new THREE.Color(0x50d8f8) },
-        uOpacity: { value: d.op },
-        uHead:    { value: i / WAND_DEFS.length },
-        uSpeed:   { value: 0.0 },
-      },
-      transparent: true,
-      depthWrite:  false,
-      blending:    THREE.AdditiveBlending,
-      side:        THREE.DoubleSide,
-    });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.renderOrder   = 2;
-    mesh.frustumCulled = true;
-    scene.add(mesh);
-    smokeWands.push({ mat, phase: i / WAND_DEFS.length, spd: d.spd });
+  const mat = new THREE.ShaderMaterial({
+    vertexShader:   smokeVert,
+    fragmentShader: smokeFrag,
+    uniforms: {
+      uColor:   { value: new THREE.Color(0x38d8ff) },
+      uOpacity: { value: d.op },
+      uHead:    { value: 0.0 },
+    },
+    transparent: true,
+    depthWrite:  false,
+    blending:    THREE.AdditiveBlending,  // cannot produce black
+    side:        THREE.DoubleSide,
   });
-  console.log(`[K4] v9: ${smokeWands.length} wispy vapour wands built`);
-}
+
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.renderOrder   = 2;
+  mesh.frustumCulled = true;
+  scene.add(mesh);
+
+  return { mat, phase: i / WAND_DEFS.length, spd: d.spd };
+});
 
 // ─────────────────────────────────────────────────────────────────
 // ANIMATION LOOP
@@ -558,14 +512,12 @@ function animate() {
   const delta   = clock.getDelta();
   const elapsed = clock.getElapsedTime();
 
-  // ── Wispy vapour animation ────────────────────────────────────────
-  // uHead:  comet position 0→1 along the tube, per-wand phase stagger
-  // uSpeed: 0→1 normalised from MPH — drives noise stretch (motion blur)
-  const normSpeed = (currentSpeed - 40) / 60;           // 0 at 40mph, 1 at 100mph
-  const flowRate  = 0.38 + normSpeed * 0.74;            // 0.38–1.12 tube-lengths/s
+  // ── Smoke head animation ─────────────────────────────────────
+  // 40 mph = head travels 0.26 tube-lengths/s
+  // 100 mph = 0.85 tube-lengths/s
+  const smokeSpd = 0.26 + ((currentSpeed - 40) / 60) * 0.59;
   for (const { mat, phase, spd } of smokeWands) {
-    mat.uniforms.uHead.value  = ((elapsed * flowRate * spd) + phase) % 1.0;
-    mat.uniforms.uSpeed.value = normSpeed;
+    mat.uniforms.uHead.value = ((elapsed * smokeSpd * spd) + phase) % 1.0;
   }
 
   // ── WHEEL SPIN ───────────────────────────────────────────────
