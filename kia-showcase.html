@@ -5,13 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>2025 Kia K4 GT-Line | Aurora Black Pearl</title>
 
-  <!--
-    DEPLOYMENT CHECKLIST:
-    1. Upload THIS FILE to GitHub repo as kia-showcasev2.html
-    2. Upload kiak4.glb to the SAME repo root
-    3. The GLB URL below is absolute — works from any domain including Squarespace
-    4. Squarespace iframe: src="https://aryaa207.github.io/Kiak4/kia-showcasev2.html"
-  -->
 
   <script type="importmap">
   {
@@ -126,11 +119,7 @@ import { GLTFLoader }    from 'three/addons/loaders/GLTFLoader.js';
 import { RGBELoader }    from 'three/addons/loaders/RGBELoader.js';
 import { DRACOLoader }   from 'three/addons/loaders/DRACOLoader.js';
 
-// ─────────────────────────────────────────────────────────────────
-// ABSOLUTE GLB URL  ← this is the key fix for Squarespace
-// The file is served from GitHub Pages so any domain can load it.
-// GitHub Pages sets permissive CORS headers on static assets.
-// ─────────────────────────────────────────────────────────────────
+
 const GLB_URL = 'https://aryaa207.github.io/Kiak4/kiak4.glb';
 
 // ── Loader UI helpers ────────────────────────────────────────────
@@ -278,7 +267,6 @@ function isWhitish(mat) {
 }
 
 // ── Wheel mesh refs  (populated by loadCar → applyMaterials) ─────
-// These are rotated every frame proportional to currentSpeed.
 const wheelMeshes = [];
 
 function applyMaterials(model) {
@@ -344,13 +332,9 @@ function loadCar() {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────
-// SMOKE WAND SYSTEM
-// ─────────────────────────────────────────────────────────────────
 
 // ── GLSL shader ──────────────────────────────────────────────────
-// AdditiveBlending: adds light only, physically cannot write black.
-// All values clamped [0,1]: NaN / Inf impossible.
+
 const smokeVert = `
   varying vec2 vUv;
   void main() {
@@ -387,8 +371,7 @@ const smokeFrag = `
 `;
 
 // ── Car body silhouette for path physics ─────────────────────────
-// Returns Y of car's top surface at a given Z depth.
-// Car: nose = +Z, trunk = −Z.
+
 const SURF_CLEAR = 0.025;  // gap above surface to prevent clipping
 function carTopY(pz) {
   if (pz > 3.3 || pz < -3.6) return -99;
